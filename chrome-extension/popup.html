@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AISIS Auto Scraper</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --logo-spacing: -0.05em;
+            
+            /* Ateneo Blue Theme */
+            --primary-h: 228;
+            --primary-s: 74%;
+            --primary-l: 30%;
+            
+            --background: 0 0% 100%;
+            --foreground: 220 90% 8%;
+            --card: 0 0% 100%;
+            --card-foreground: 220 90% 8%;
+            --primary: var(--primary-h) var(--primary-s) var(--primary-l);
+            --primary-foreground: 0 0% 100%;
+            --secondary: 220 14% 96%;
+            --secondary-foreground: 220 90% 8%;
+            --muted: 220 14% 96%;
+            --muted-foreground: 220 9% 46%;
+            --border: 220 13% 91%;
+            --input: 220 13% 91%;
+            --success: 142 76% 36%;
+            --warning: 38 92% 50%;
+            --radius: 0.5rem;
+        }
+        
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
+        body {
+            width: 420px;
+            font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+            font-size: 14px;
+            line-height: 1.5;
+            background-color: hsl(var(--background));
+            color: hsl(var(--foreground));
+        }
+        
+        .header {
+            background-color: hsl(var(--background));
+            color: hsl(var(--foreground));
+            padding: 16px 20px 16px 17px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid hsl(var(--border));
+        }
+        
+        .session-info {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 2px;
+        }
+        
+        .session-label {
+            font-size: 9px;
+            color: hsl(var(--muted-foreground));
+            text-transform: uppercase;
+            font-weight: 600;
+        }
+        
+        .session-id {
+            font-size: 10px;
+            color: hsl(var(--foreground));
+            font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+            font-weight: 500;
+        }
+        
+        .logo {
+            display: flex;
+            align-items: center;
+        }
+        
+        .logo-icon {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: hsl(var(--primary));
+            letter-spacing: var(--logo-spacing, -0.05em);
+            line-height: 1;
+            position: relative;
+            top: 2px;
+        }
+        
+        .version-inline {
+            font-size: 10px;
+            color: hsl(var(--muted-foreground));
+            font-weight: 500;
+            line-height: 1.2;
+            text-transform: uppercase;
+            position: relative;
+            top: 7.3px;
+            margin-left: 6px;
+        }
+        
+        .section {
+            padding: 16px 20px;
+            border-bottom: 1px solid hsl(var(--border));
+        }
+        
+        .section-title {
+            font-weight: 700;
+            font-size: 13px;
+            color: hsl(var(--muted-foreground));
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 12px;
+        }
+        
+        .input-group {
+            margin-bottom: 12px;
+        }
+        
+        .input-group label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 6px;
+            color: hsl(var(--foreground));
+        }
+        
+        .input-group input {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid hsl(var(--border));
+            border-radius: calc(var(--radius) - 2px);
+            font-family: inherit;
+            font-size: 14px;
+            background: hsl(var(--background));
+            color: hsl(var(--foreground));
+        }
+        
+        .input-group input:focus {
+            outline: none;
+            border-color: hsl(var(--primary));
+            box-shadow: 0 0 0 2px hsl(var(--primary) / 0.1);
+        }
+        
+        .btn-primary {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            white-space: nowrap;
+            border-radius: calc(var(--radius) - 2px);
+            font-size: 0.875rem;
+            font-weight: 600;
+            height: 2.5rem;
+            padding: 0.5rem 1rem;
+            background-color: hsl(var(--primary));
+            color: hsl(var(--primary-foreground));
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s;
+            width: 100%;
+            font-family: inherit;
+        }
+        
+        .btn-primary:hover {
+            background-color: hsl(var(--primary-h) var(--primary-s) calc(var(--primary-l) * 0.9));
+        }
+        
+        .btn-outline {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            white-space: nowrap;
+            border-radius: calc(var(--radius) - 2px);
+            font-size: 0.875rem;
+            font-weight: 600;
+            height: 2.5rem;
+            padding: 0.5rem 1rem;
+            background-color: hsl(var(--background));
+            color: hsl(var(--foreground));
+            border: 1px solid hsl(var(--border));
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+        
+        .btn-outline:hover {
+            background-color: hsl(var(--primary));
+            color: hsl(var(--primary-foreground));
+        }
+        
+        .btn-sm {
+            height: 2.25rem;
+            padding: 0.5rem 0.75rem;
+            font-size: 0.875rem;
+        }
+        
+        .checkbox-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        
+        .checkbox-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px;
+            border-radius: calc(var(--radius) - 2px);
+            transition: background-color 0.2s;
+        }
+        
+        .checkbox-item:hover {
+            background-color: hsl(var(--muted));
+        }
+        
+        .checkbox-item input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+        }
+        
+        .checkbox-item label {
+            cursor: pointer;
+            font-size: 14px;
+            flex: 1;
+        }
+        
+        .progress-section {
+            padding: 16px 20px;
+            background-color: hsl(var(--muted));
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 32px;
+            background-color: hsl(var(--background));
+            border-radius: var(--radius);
+            overflow: hidden;
+            margin-bottom: 12px;
+            position: relative;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background-color: hsl(var(--primary));
+            transition: width 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: hsl(var(--primary-foreground));
+            font-weight: 700;
+            font-size: 12px;
+        }
+        
+        .status-text {
+            font-size: 13px;
+            color: hsl(var(--muted-foreground));
+            margin-bottom: 4px;
+        }
+        
+        .time-estimate {
+            font-size: 12px;
+            color: hsl(var(--muted-foreground));
+        }
+        
+        .logs-container {
+            max-height: 200px;
+            overflow-y: auto;
+            background-color: hsl(var(--muted));
+            border-radius: calc(var(--radius) - 2px);
+            padding: 12px;
+            font-size: 12px;
+            font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+        }
+        
+        .log-entry {
+            padding: 4px 0;
+            border-bottom: 1px solid hsl(var(--border));
+        }
+        
+        .log-entry:last-child {
+            border-bottom: none;
+        }
+        
+        .log-info { color: hsl(var(--muted-foreground)); }
+        .log-success { color: hsl(var(--success)); }
+        .log-warning { color: hsl(var(--warning)); }
+        .log-error { color: hsl(0 84.2% 60.2%); }
+        .log-debug { color: hsl(var(--muted-foreground)); opacity: 0.7; }
+        
+        .export-buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+        
+        .hidden {
+            display: none;
+        }
+        
+        .btn-group {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .btn-danger {
+            background-color: hsl(0 84.2% 60.2%);
+            color: white;
+        }
+        
+        .btn-danger:hover {
+            background-color: hsl(0 84.2% 50.2%);
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <div class="header">
+        <div class="logo">
+            <span class="logo-icon">(a)</span>
+            <span class="version-inline">v4.0</span>
+        </div>
+        <div id="session-info" class="session-info hidden">
+            <span class="session-label">Session:</span>
+            <span id="session-id" class="session-id"></span>
+        </div>
+    </div>
+    
+    <!-- Credentials Section -->
+    <div class="section" id="credentials-section">
+        <div class="section-title">AISIS Credentials</div>
+        <div class="input-group">
+            <label for="username">Username</label>
+            <input type="text" id="username" placeholder="Enter your AISIS username">
+        </div>
+        <div class="input-group">
+            <label for="password">Password</label>
+            <input type="password" id="password" placeholder="Enter your AISIS password">
+        </div>
+        <button id="save-credentials" class="btn-primary">Save Credentials</button>
+    </div>
+    
+    <!-- Pages Selection -->
+    <div class="section">
+        <div class="section-title">Select Pages to Scrape</div>
+        <div class="checkbox-list">
+            <div class="checkbox-item">
+                <input type="checkbox" id="schedule" value="scheduleOfClasses">
+                <label for="schedule">Schedule of Classes</label>
+            </div>
+            <div class="checkbox-item">
+                <input type="checkbox" id="curriculum" value="officialCurriculum">
+                <label for="curriculum">Official Curriculum</label>
+            </div>
+            <div class="checkbox-item">
+                <input type="checkbox" id="grades" value="viewGrades">
+                <label for="grades">View Grades</label>
+            </div>
+            <div class="checkbox-item">
+                <input type="checkbox" id="advisory" value="advisoryGrades">
+                <label for="advisory">Advisory Grades</label>
+            </div>
+            <div class="checkbox-item">
+                <input type="checkbox" id="enrolled" value="currentlyEnrolled">
+                <label for="enrolled">Currently Enrolled Classes</label>
+            </div>
+            <div class="checkbox-item">
+                <input type="checkbox" id="class-schedule" value="myClassSchedule">
+                <label for="class-schedule">My Class Schedule</label>
+            </div>
+            <div class="checkbox-item">
+                <input type="checkbox" id="tuition" value="tuitionReceipt">
+                <label for="tuition">Tuition Receipt</label>
+            </div>
+            <div class="checkbox-item">
+                <input type="checkbox" id="student-info" value="studentInfo">
+                <label for="student-info">Student Information</label>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Scraping Controls -->
+    <div class="section">
+        <div class="btn-group">
+            <button id="start-scraping" class="btn-primary" style="flex: 1;">Start Scraping</button>
+            <button id="stop-scraping" class="btn-outline btn-danger hidden" style="flex: 1;">Stop</button>
+        </div>
+    </div>
+    
+    <!-- Progress Section -->
+    <div id="progress-section" class="progress-section hidden">
+        <div class="progress-bar">
+            <div id="progress-fill" class="progress-fill" style="width: 0%;">0%</div>
+        </div>
+        <div id="status-text" class="status-text">Initializing...</div>
+        <div id="time-estimate" class="time-estimate"></div>
+    </div>
+    
+    <!-- Logs Section -->
+    <div id="logs-section" class="section hidden">
+        <div class="section-title">Debug Logs</div>
+        <div id="logs-container" class="logs-container"></div>
+        <div class="btn-group" style="margin-top: 12px;">
+            <button id="stop-scraping-logs" class="btn-outline btn-sm btn-danger">Stop</button>
+            <button id="resume-scraping-logs" class="btn-outline btn-sm btn-success hidden">Resume Scraping</button>
+            <button id="delete-logs" class="btn-outline btn-sm">Delete Logs</button>
+        </div>
+    </div>
+    
+    <!-- Export Section -->
+    <div id="export-section" class="section hidden">
+        <div class="section-title">Export Data</div>
+        <div class="export-buttons">
+            <button id="export-json" class="btn-outline">Export JSON</button>
+            <button id="export-csv" class="btn-outline">Export CSV</button>
+            <button id="view-data" class="btn-outline">View Data</button>
+            <button id="download-logs" class="btn-outline">Download Logs</button>
+            <button id="export-har" class="btn-outline">Export HAR</button>
+            <button id="export-html" class="btn-outline">Export HTML</button>
+        </div>
+        <div style="margin-top: 12px; display: flex; flex-direction: column; gap: 8px;">
+            <button id="hard-stop" class="btn-primary btn-danger" style="width: 100%;">Terminate Scraping (Cannot Resume)</button>
+            <button id="clear-all-data" class="btn-outline" style="width: 100%;">Clear All Data & Start Fresh</button>
+        </div>
+    </div>
+    
+    <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "AISIS Dashboard",
+  "version": "4.1.2",
+  "description": "Automatically scrape AISIS data with credential storage, progress tracking, and multiple export formats.",
+  "permissions": [
+    "storage",
+    "downloads",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://aisis.ateneo.edu/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "dashboard.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  }
+}

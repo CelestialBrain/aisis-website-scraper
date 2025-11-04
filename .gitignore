@@ -1,0 +1,54 @@
+# Node modules
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/
+
+# Build outputs
+dist/
+build/
+*.zip
+
+# Credentials (never commit)
+credentials.json
+secrets.json
+*.pem
+*.key
+
+# Chrome extension (keep source, ignore builds)
+*.crx
+*.pem
+
+# Backup files
+*_backup.*
+*_old.*
+*.bak
+
+# Test data
+test-data/
+*.test.json

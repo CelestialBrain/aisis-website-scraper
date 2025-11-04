@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AISIS Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --logo-spacing: -0.05em;
+            --primary-h: 228;
+            --primary-s: 74%;
+            --primary-l: 30%;
+            --background: 0 0% 100%;
+            --foreground: 220 90% 8%;
+            --primary: var(--primary-h) var(--primary-s) var(--primary-l);
+            --primary-foreground: 0 0% 100%;
+            --secondary: 220 14% 96%;
+            --muted: 220 14% 96%;
+            --muted-foreground: 220 9% 46%;
+            --border: 220 13% 91%;
+            --success: 142 76% 36%;
+            --warning: 38 92% 50%;
+            --danger: 0 84% 60%;
+        }
+        
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
+        html, body {
+            width: 800px;
+            height: 600px;
+            overflow: hidden;
+            font-family: 'Inter', system-ui, sans-serif;
+            font-size: 14px;
+            background-color: hsl(var(--background));
+            color: hsl(var(--foreground));
+        }
+        
+        .header {
+            height: 64px;
+            background-color: hsl(var(--background));
+            color: hsl(var(--foreground));
+            padding: 0 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid hsl(var(--border));
+            flex-shrink: 0;
+        }
+        
+        .logo-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .logo-icon {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: hsl(var(--primary));
+            letter-spacing: var(--logo-spacing, -0.05em);
+            line-height: 1;
+            position: relative;
+            top: 2px;
+        }
+        
+        .logo-version {
+            font-size: 10px;
+            color: hsl(var(--muted-foreground));
+            text-transform: uppercase;
+            font-weight: 500;
+            letter-spacing: 0.05em;
+        }
+        
+        .header-actions {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .btn {
+            padding: 6px 12px;
+            border: none;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .btn-primary {
+            background: hsl(var(--primary));
+            color: hsl(var(--primary-foreground));
+        }
+        
+        .btn-primary:hover {
+            opacity: 0.9;
+        }
+        
+        .btn-outline {
+            background: transparent;
+            border: 1px solid hsl(var(--border));
+            color: hsl(var(--foreground));
+        }
+        
+        .btn-outline:hover {
+            background: hsl(var(--secondary));
+        }
+        
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid hsl(var(--border));
+            background: white;
+            padding: 0 20px;
+        }
+        
+        .tab {
+            padding: 12px 20px;
+            border: none;
+            background: transparent;
+            color: hsl(var(--muted-foreground));
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+        }
+        
+        .tab:hover {
+            color: hsl(var(--foreground));
+        }
+        
+        .tab.active {
+            color: hsl(var(--primary));
+            border-bottom-color: hsl(var(--primary));
+        }
+        
+        .tab-content {
+            display: none;
+            padding: 20px;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        
+        .stat-card {
+            padding: 16px;
+            border-radius: 8px;
+            border: 1px solid hsl(var(--border));
+            background: white;
+        }
+        
+        .stat-label {
+            font-size: 12px;
+            color: hsl(var(--muted-foreground));
+            margin-bottom: 4px;
+        }
+        
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: hsl(var(--primary));
+        }
+        
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid hsl(var(--border));
+        }
+        
+        .data-table th {
+            background: hsl(var(--secondary));
+            padding: 12px;
+            text-align: left;
+            font-size: 12px;
+            font-weight: 600;
+            color: hsl(var(--foreground));
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        
+        .data-table td {
+            padding: 12px;
+            border-top: 1px solid hsl(var(--border));
+            font-size: 13px;
+            max-width: 200px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .data-table tr:hover {
+            background: hsl(var(--secondary));
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: hsl(var(--muted-foreground));
+        }
+        
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+            opacity: 0.3;
+        }
+        
+        .empty-state-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: hsl(var(--foreground));
+        }
+        
+        .empty-state-description {
+            font-size: 14px;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .badge-success {
+            background: hsla(var(--success), 0.1);
+            color: hsl(var(--success));
+        }
+        
+        .badge-warning {
+            background: hsla(var(--warning), 0.1);
+            color: hsl(var(--warning));
+        }
+        
+        .badge-danger {
+            background: hsla(var(--danger), 0.1);
+            color: hsl(var(--danger));
+        }
+        
+        .section-title {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: hsl(var(--foreground));
+        }
+        
+        .hidden {
+            display: none !important;
+        }
+        
+        .main-content {
+            height: calc(600px - 64px);
+            overflow-y: auto;
+            overflow-x: hidden;
+            scrollbar-width: thin;
+            scrollbar-color: hsl(var(--muted-foreground) / 0.3) transparent;
+        }
+        
+        .main-content::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        .main-content::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        
+        .main-content::-webkit-scrollbar-thumb {
+            background-color: hsl(var(--muted-foreground) / 0.3);
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <div class="header">
+        <div class="logo-container">
+            <div class="logo-icon">(a)</div>
+            <div class="logo-version">v4.1.2</div>
+        </div>
+        <div class="header-actions">
+            <button id="refresh-btn" class="btn btn-outline">🔄 Refresh Data</button>
+            <button id="scraper-btn" class="btn btn-primary">⚙️ Scraper</button>
+        </div>
+    </div>
+    
+    <!-- Main Content Area -->
+    <div class="main-content">
+    <!-- Tab Navigation -->
+    <div class="tabs">
+        <button class="tab active" data-tab="overview">Overview</button>
+        <button class="tab" data-tab="grades">Grades</button>
+        <button class="tab" data-tab="schedule">Schedule</button>
+        <button class="tab" data-tab="student">Student Info</button>
+        <button class="tab" data-tab="program">Program of Study</button>
+    </div>
+    
+    <!-- Overview Tab -->
+    <div id="overview-tab" class="tab-content active">
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Current QPI</div>
+                <div class="stat-value" id="current-qpi">--</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Cumulative GPA</div>
+                <div class="stat-value" id="cumulative-gpa">--</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Units Completed</div>
+                <div class="stat-value" id="units-completed">--</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Current Courses</div>
+                <div class="stat-value" id="current-courses">--</div>
+            </div>
+        </div>
+        
+        <div class="section-title">Current Semester</div>
+        <table class="data-table" id="current-courses-table">
+            <thead>
+                <tr>
+                    <th>Course Code</th>
+                    <th>Course Title</th>
+                    <th>Units</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody id="current-courses-body">
+                <tr>
+                    <td colspan="4">
+                        <div class="empty-state">
+                            <div class="empty-state-icon">📚</div>
+                            <div class="empty-state-title">No Data Available</div>
+                            <div class="empty-state-description">Run the scraper to fetch your AISIS data</div>
+                        </div>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    
+    <!-- Grades Tab -->
+    <div id="grades-tab" class="tab-content">
+        <div class="section-title">All Grades</div>
+        <table class="data-table" id="grades-table">
+            <thead>
+                <tr>
+                    <th>School Year</th>
+                    <th>Sem</th>
+                    <th>Course Code</th>
+                    <th>Course Title</th>
+                    <th>Units</th>
+                    <th>Grade</th>
+                </tr>
+            </thead>
+            <tbody id="grades-body">
+                <tr>
+                    <td colspan="6">
+                        <div class="empty-state">
+                            <div class="empty-state-icon">📊</div>
+                            <div class="empty-state-title">No Grades Data</div>
+                            <div class="empty-state-description">Run the scraper to view your grades</div>
+                        </div>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    
+    <!-- Schedule Tab -->
+    <div id="schedule-tab" class="tab-content">
+        <div class="section-title">Class Schedule</div>
+        <table class="data-table" id="schedule-table">
+            <thead>
+                <tr>
+                    <th>Course Code</th>
+                    <th>Section</th>
+                    <th>Schedule</th>
+                    <th>Room</th>
+                    <th>Instructor</th>
+                </tr>
+            </thead>
+            <tbody id="schedule-body">
+                <tr>
+                    <td colspan="5">
+                        <div class="empty-state">
+                            <div class="empty-state-icon">📅</div>
+                            <div class="empty-state-title">No Schedule Data</div>
+                            <div class="empty-state-description">Run the scraper to view your schedule</div>
+                        </div>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    
+    <!-- Student Info Tab -->
+    <div id="student-tab" class="tab-content">
+        <div class="section-title">Student Information</div>
+        <div id="student-info-content">
+            <div class="empty-state">
+                <div class="empty-state-icon">👤</div>
+                <div class="empty-state-title">No Student Data</div>
+                <div class="empty-state-description">Run the scraper to view your information</div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Program of Study Tab -->
+    <div id="program-tab" class="tab-content">
+        <div class="section-title">Program of Study</div>
+        <div id="program-content">
+            <div class="empty-state">
+                <div class="empty-state-icon">🎓</div>
+                <div class="empty-state-title">No Program Data</div>
+                <div class="empty-state-description">Run the scraper to view your program of study</div>
+            </div>
+        </div>
+    </div>
+    </div><!-- End main-content -->
+    
+    <script src="dashboard.js"></script>
+</body>
+</html>
