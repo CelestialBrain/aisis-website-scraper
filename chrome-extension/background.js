@@ -113,7 +113,17 @@ function saveHTMLSnapshot(pageName, html) {
 }
 
 // Utility: Add HAR entry
-function addHAREntry(url, method, requestHeaders, requestBody, responseStatus, responseHeaders, responseBody, timing) {
+function addHAREntry(
+  url,
+  method,
+  requestHeaders,
+  requestBody,
+  responseStatus,
+  responseStatusText,
+  responseHeaders,
+  responseBody,
+  timing
+) {
     const entry = {
       startedDateTime: new Date().toISOString(),
       time: timing || 0,
@@ -128,7 +138,7 @@ function addHAREntry(url, method, requestHeaders, requestBody, responseStatus, r
     },
     response: {
       status: responseStatus,
-      statusText: responseStatus === 200 ? 'OK' : 'Error',
+      statusText: responseStatusText || null,
       headers: responseHeaders || [],
       content: {
         size: responseBody ? responseBody.length : 0,
@@ -404,6 +414,7 @@ async function fetchWithHAR(url, options = {}) {
       requestHeaders,
       options.body ? options.body.toString() : null,
       response.status,
+      response.statusText,
       responseHeaders,
       responseText,
       responseTime
