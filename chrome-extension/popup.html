@@ -344,9 +344,12 @@
             <span class="logo-icon">(a)</span>
             <span class="version-inline">v4.0</span>
         </div>
-        <div id="session-info" class="session-info hidden">
-            <span class="session-label">Session:</span>
-            <span id="session-id" class="session-id"></span>
+        <div class="header-right">
+            <button id="pin-window" class="icon-button" title="Pin popup" aria-pressed="false">📌</button>
+            <div id="session-info" class="session-info hidden">
+                <span class="session-label">Session:</span>
+                <span id="session-id" class="session-id"></span>
+            </div>
         </div>
     </div>
     
@@ -419,7 +422,12 @@
         <div id="status-text" class="status-text">Initializing...</div>
         <div id="time-estimate" class="time-estimate"></div>
     </div>
-    
+
+    <div id="dataset-progress-section" class="dataset-progress-section hidden">
+        <div class="section-title">Dataset Progress</div>
+        <div id="dataset-progress-list" class="dataset-progress-list"></div>
+    </div>
+
     <!-- Logs Section -->
     <div id="logs-section" class="section hidden">
         <div class="section-title">Debug Logs</div>

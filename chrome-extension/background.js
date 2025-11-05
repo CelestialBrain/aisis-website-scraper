@@ -55,6 +55,118 @@ function generateSessionId() {
   return 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 }
 
+function formatDatasetLabel(key) {
+  if (!key) {
+    return 'Dataset';
+  }
+  if (DATASET_LABELS[key]) {
+    return DATASET_LABELS[key];
+  }
+  return key
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/_/g, ' ')
+    .replace(/^./, chr => chr.toUpperCase())
+    .trim();
+}
+
+function updateDatasetProgress(key, updates = {}) {
+  if (!key) {
+    return;
+  }
+
+  if (!scrapingState.datasetProgress) {
+    scrapingState.datasetProgress = {};
+  }
+
+  const existing = scrapingState.datasetProgress[key] || {};
+  scrapingState.datasetProgress[key] = {
+    label: updates.label || existing.label || formatDatasetLabel(key),
+    completed: updates.completed !== undefined ? updates.completed : existing.completed || 0,
+    total: updates.total !== undefined ? updates.total : existing.total || 0,
+    items: updates.items !== undefined ? updates.items : existing.items || 0,
+    detail: updates.detail !== undefined ? updates.detail : existing.detail || null,
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function normalizePageSelection(pages = {}) {
+  return {
+    scheduleOfClasses: Boolean(pages.scheduleOfClasses || pages.schedule),
+    officialCurriculum: Boolean(pages.officialCurriculum || pages.curriculum),
+    grades: Boolean(pages.grades || pages.viewGrades),
+    advisoryGrades: Boolean(pages.advisoryGrades || pages.advisory),
+    enrolledClasses: Boolean(pages.enrolledClasses || pages.currentlyEnrolled),
+    classSchedule: Boolean(pages.classSchedule || pages.myClassSchedule),
+    tuitionReceipt: Boolean(pages.tuitionReceipt || pages.receipts),
+    studentInfo: Boolean(pages.studentInfo || pages.profile),
+    programOfStudy: Boolean(pages.programOfStudy || pages.program),
+    holdOrders: Boolean(pages.holdOrders || pages.holds),
+    facultyAttendance: Boolean(pages.facultyAttendance || pages.faculty)
+  };
+}
+
+function stripHtml(value = '') {
+  return value
+    .replace(/<br\s*\/>/gi, '\n')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/<[^>]*>/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function extractTablesFromHTML(html) {
+  const tables = [];
+  const tableRegex = /<table[\s\S]*?<\/table>/gi;
+  let tableMatch;
+
+  while ((tableMatch = tableRegex.exec(html)) !== null) {
+    const tableHTML = tableMatch[0];
+    const captionMatch = tableHTML.match(/<caption[^>]*>([\s\S]*?)<\/caption>/i);
+    const caption = captionMatch ? stripHtml(captionMatch[1]) : null;
+
+    const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+    const parsedRows = [];
+    let rowMatch;
+
+    while ((rowMatch = rowRegex.exec(tableHTML)) !== null) {
+      const rowHTML = rowMatch[1];
+      const cellRegex = /<(td|th)[^>]*>([\s\S]*?)<\/(td|th)>/gi;
+      const cells = [];
+      let cellMatch;
+      let isHeaderRow = false;
+
+      while ((cellMatch = cellRegex.exec(rowHTML)) !== null) {
+        const cellType = (cellMatch[1] || '').toLowerCase();
+        if (cellType === 'th') {
+          isHeaderRow = true;
+        }
+        cells.push(stripHtml(cellMatch[2] || ''));
+      }
+
+      if (cells.length) {
+        parsedRows.push({ cells, isHeaderRow });
+      }
+    }
+
+    if (parsedRows.length === 0) {
+      continue;
+    }
+
+    const headerEntry = parsedRows.find(row => row.isHeaderRow) || parsedRows[0];
+    const headers = headerEntry.cells;
+    const dataRows = parsedRows.filter(row => row !== headerEntry).map(row => row.cells);
+
+    tables.push({
+      caption,
+      headers,
+      rows: dataRows,
+      totalRows: dataRows.length
+    });
+  }
+
+  return tables;
+}
+
 // Load persisted state on startup
 chrome.storage.local.get('scrapingState', (result) => {
   if (result.scrapingState) {
@@ -104,11 +216,42 @@ function addLog(message, type = 'info', context = {}) {
 
 // Utility: Save HTML snapshot for debugging
 function saveHTMLSnapshot(pageName, html) {
+  if (!pageName || typeof html !== 'string') {
+    return;
+  }
+
+  const shouldCapture =
+    scrapingState.debugMode ||
+    scrapingState.htmlSnapshotOrder.length < MAX_HTML_SNAPSHOTS ||
+    scrapingState.htmlSnapshotOrder.includes(pageName);
+
+  if (!shouldCapture) {
+    return;
+  }
+
+  const truncatedHtml = html.length > MAX_HTML_SNAPSHOT_SIZE
+    ? `${html.slice(0, MAX_HTML_SNAPSHOT_SIZE)}\n<!-- truncated -->`
+    : html;
+
   scrapingState.htmlSnapshots[pageName] = {
     timestamp: new Date().toISOString(),
-    html: html,
+    html: truncatedHtml,
     length: html.length
   };
+
+  const existingIndex = scrapingState.htmlSnapshotOrder.indexOf(pageName);
+  if (existingIndex !== -1) {
+    scrapingState.htmlSnapshotOrder.splice(existingIndex, 1);
+  }
+  scrapingState.htmlSnapshotOrder.push(pageName);
+
+  while (scrapingState.htmlSnapshotOrder.length > MAX_HTML_SNAPSHOTS) {
+    const removed = scrapingState.htmlSnapshotOrder.shift();
+    if (removed && scrapingState.htmlSnapshots[removed]) {
+      delete scrapingState.htmlSnapshots[removed];
+    }
+  }
+
   addLog(`Saved HTML snapshot for ${pageName} (${html.length} bytes)`, 'debug');
 }
 
@@ -143,12 +286,19 @@ function addHAREntry(
       content: {
         size: responseBody ? responseBody.length : 0,
         mimeType: 'text/html',
-        text: responseBody || ''
+        text: responseBody
+          ? (responseBody.length > MAX_HAR_BODY_LENGTH
+              ? `${responseBody.slice(0, MAX_HAR_BODY_LENGTH)}\n/* truncated */`
+              : responseBody)
+          : ''
       }
     }
   };
-  
+
   scrapingState.harEntries.push(entry);
+  if (scrapingState.harEntries.length > MAX_HAR_ENTRIES) {
+    scrapingState.harEntries = scrapingState.harEntries.slice(-MAX_HAR_ENTRIES);
+  }
   addLog(`HAR entry added: ${method} ${url} (${responseStatus})`, 'debug');
 }
 
@@ -698,12 +848,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 });
 
-// Main scraping function (to be implemented in next phase)
-async function startScraping(options) {
-  addLog('Scraping function will be implemented in the next phase', 'info');
-}
-
-
 // ============================================================================
 // SCRAPING ENGINE
 // ============================================================================
@@ -714,10 +858,13 @@ async function startScraping(options) {
     addLog('Scraping already in progress', 'warning');
     return;
   }
-  
+
   // Generate or keep existing session ID
   const sessionId = scrapingState.sessionId || generateSessionId();
-  
+
+  const pages = normalizePageSelection((options && options.pages) || {});
+  const selectedPageKeys = Object.keys(pages).filter(key => pages[key]);
+
   // Reset state
   scrapingState = createInitialState({
     isRunning: true,
@@ -761,50 +908,50 @@ async function startScraping(options) {
     updateProgress();
     
     // Calculate total steps
-    scrapingState.totalSteps = Object.values(options.pages).filter(v => v).length + 1; // +1 for login
-    
+    scrapingState.totalSteps = selectedPageKeys.length + 1; // +1 for login
+
     // Step 2: Scrape selected pages
-    if (options.pages.scheduleOfClasses) {
+    if (pages.scheduleOfClasses) {
       await scrapeScheduleOfClasses();
     }
-    
-    if (options.pages.officialCurriculum) {
+
+    if (pages.officialCurriculum) {
       await scrapeOfficialCurriculum();
     }
-    
-    if (options.pages.grades) {
+
+    if (pages.grades) {
       await scrapeGrades();
     }
-    
-    if (options.pages.advisoryGrades) {
+
+    if (pages.advisoryGrades) {
       await scrapeAdvisoryGrades();
     }
-    
-    if (options.pages.enrolledClasses) {
+
+    if (pages.enrolledClasses) {
       await scrapeEnrolledClasses();
     }
-    
-    if (options.pages.classSchedule) {
+
+    if (pages.classSchedule) {
       await scrapeClassSchedule();
     }
-    
-    if (options.pages.tuitionReceipt) {
+
+    if (pages.tuitionReceipt) {
       await scrapeTuitionReceipt();
     }
-    
-    if (options.pages.studentInfo) {
+
+    if (pages.studentInfo) {
       await scrapeStudentInfo();
     }
-    
-    if (options.pages.programOfStudy) {
+
+    if (pages.programOfStudy) {
       await scrapeProgramOfStudy();
     }
-    
-    if (options.pages.holdOrders) {
+
+    if (pages.holdOrders) {
       await scrapeHoldOrders();
     }
-    
-    if (options.pages.facultyAttendance) {
+
+    if (pages.facultyAttendance) {
       await scrapeFacultyAttendance();
     }
     
@@ -914,6 +1061,13 @@ async function scrapeScheduleOfClasses() {
     
     // Step 2: Scrape each department
     scrapingState.scrapedData.scheduleOfClasses = [];
+    updateDatasetProgress('scheduleOfClasses', {
+      label: formatDatasetLabel('scheduleOfClasses'),
+      completed: 0,
+      total: departments.length,
+      items: 0
+    });
+    updateProgress();
     
     for (let i = 0; i < departments.length; i++) {
       if (!scrapingState.isRunning) {
@@ -1040,6 +1194,13 @@ async function scrapeScheduleOfClasses() {
           error: deptError.message
         });
         scrapingState.errors.push({ step: `schedule_${dept}`, error: deptError.message });
+        updateDatasetProgress('scheduleOfClasses', {
+          completed: i + 1,
+          total: departments.length,
+          items: scrapingState.scrapedData.scheduleOfClasses.length,
+          detail: `${dept} (error)`
+        });
+        updateProgress();
       }
       
       // Rate limiting: wait 2-4 seconds between requests to avoid throttling
@@ -1052,7 +1213,7 @@ async function scrapeScheduleOfClasses() {
     });
     scrapingState.completedSteps++;
     updateProgress();
-    
+
   } catch (error) {
     addLog(`Error scraping schedule: ${error.message}`, 'error', { step: 'scheduleOfClasses', error: error.message });
     scrapingState.errors.push({ step: 'scheduleOfClasses', error: error.message });
@@ -1105,6 +1266,13 @@ async function scrapeOfficialCurriculum() {
     
     // Step 2: Scrape each degree program
     scrapingState.scrapedData.officialCurriculum = [];
+    updateDatasetProgress('officialCurriculum', {
+      label: formatDatasetLabel('officialCurriculum'),
+      completed: 0,
+      total: degreeCodes.length,
+      items: 0
+    });
+    updateProgress();
     
     for (let i = 0; i < degreeCodes.length; i++) {
       if (!scrapingState.isRunning) {
@@ -1143,7 +1311,9 @@ async function scrapeOfficialCurriculum() {
       try {
         if (response.ok) {
           const html = await response.text();
-          saveHTMLSnapshot(`curriculum_${degree.code}`, html);
+          if (scrapingState.debugMode || i < 5) {
+            saveHTMLSnapshot(`curriculum_${degree.code}`, html);
+          }
           
           // Parse the curriculum table - find tables with "Course Title" header
           const tableRegex = /<table[^>]*>([\s\S]*?)<\/table>/gi;
@@ -1230,6 +1400,13 @@ async function scrapeOfficialCurriculum() {
           error: degError.message
         });
         scrapingState.errors.push({ step: `curriculum_${degree.code}`, error: degError.message });
+        updateDatasetProgress('officialCurriculum', {
+          completed: i + 1,
+          total: degreeCodes.length,
+          items: scrapingState.scrapedData.officialCurriculum.length,
+          detail: `${degree.name} (error)`
+        });
+        updateProgress();
       }
       
       // Rate limiting: wait 2-4 seconds between requests to avoid throttling
@@ -1242,7 +1419,7 @@ async function scrapeOfficialCurriculum() {
     });
     scrapingState.completedSteps++;
     updateProgress();
-    
+
   } catch (error) {
     addLog(`Error scraping curriculum: ${error.message}`, 'error', { step: 'officialCurriculum', error: error.message });
     scrapingState.errors.push({ step: 'officialCurriculum', error: error.message });
@@ -1273,23 +1450,40 @@ async function scrapeSimplePage(url, pageName, dataKey) {
     }
     
     const html = await response.text();
-    const doc = parseHTML(html);
-    
-    // Store the raw HTML for now (can be parsed further if needed)
+    if (scrapingState.debugMode) {
+      saveHTMLSnapshot(dataKey, html);
+    }
+
+    const tables = extractTablesFromHTML(html);
+    const totalRows = tables.reduce((sum, table) => sum + (table.totalRows || 0), 0);
+    const truncatedHtml = html.length > MAX_HTML_SNAPSHOT_SIZE
+      ? `${html.slice(0, MAX_HTML_SNAPSHOT_SIZE)}\n<!-- truncated -->`
+      : html;
+
     scrapingState.scrapedData[dataKey] = {
-      html: html,
-      text: doc.body.textContent.trim()
+      html: truncatedHtml,
+      text: stripHtml(html),
+      tables,
+      capturedAt: new Date().toISOString()
     };
     
     addLog(`${pageName} scraped successfully`, 'success', { step: dataKey, pageName });
     scrapingState.completedSteps++;
     updateProgress();
-    
+
     await delay(1000);
-    
+
   } catch (error) {
     addLog(`Error scraping ${pageName}: ${error.message}`, 'error', { step: dataKey, pageName, error: error.message });
     scrapingState.errors.push({ step: dataKey, error: error.message });
+    updateDatasetProgress(dataKey, {
+      label: pageName,
+      completed: 0,
+      total: 1,
+      items: 0,
+      detail: `Error: ${error.message}`
+    });
+    updateProgress();
   }
 }
 
