@@ -1,6 +1,20 @@
 // AISIS Auto Scraper - Enhanced Background Script with HAR Capture
 // This version includes comprehensive debugging and HAR file generation
 
+const DATASET_LABELS = {
+  officialCurriculum: 'Curriculum',
+  scheduleOfClasses: 'Schedule of Classes',
+  grades: 'View Grades',
+  advisoryGrades: 'Advisory Grades',
+  enrolledClasses: 'Currently Enrolled',
+  classSchedule: 'My Class Schedule',
+  tuitionReceipt: 'Tuition Receipt',
+  studentInfo: 'Student Information',
+  programOfStudy: 'Program of Study',
+  holdOrders: 'Hold Orders',
+  facultyAttendance: 'Faculty Attendance'
+};
+
 const LOG_HISTORY_LIMIT = 500;
 const DEFAULT_FETCH_TIMEOUT_MS = 90_000; // 90s timeout to tolerate slow AISIS responses
 const MAX_HAR_ENTRIES = 200;
