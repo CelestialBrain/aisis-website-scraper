@@ -310,6 +310,127 @@
             margin: 0;
         }
 
+        /* Weekly schedule layout */
+        .weekly-schedule-card {
+            background: white;
+            border-radius: 12px;
+            border: 1px solid hsl(var(--border));
+            margin-bottom: 20px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .weekly-schedule-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 16px;
+            padding: 16px 20px;
+            border-bottom: 1px solid hsl(var(--border));
+        }
+
+        .weekly-schedule-title {
+            font-size: 15px;
+            font-weight: 600;
+            color: hsl(var(--foreground));
+        }
+
+        .weekly-schedule-subtitle {
+            font-size: 12px;
+            color: hsl(var(--muted-foreground));
+            margin-top: 4px;
+        }
+
+        .weekly-schedule-meta {
+            font-size: 12px;
+            color: hsl(var(--muted-foreground));
+            text-align: right;
+            min-width: 140px;
+        }
+
+        .weekly-schedule-container {
+            padding: 16px 20px 20px;
+            overflow-x: auto;
+        }
+
+        .weekly-schedule-scroll {
+            min-width: 100%;
+        }
+
+        .weekly-schedule-table {
+            width: 100%;
+            min-width: 640px;
+            border-collapse: collapse;
+            table-layout: fixed;
+            background: white;
+        }
+
+        .weekly-schedule-table thead th {
+            background: hsl(var(--secondary));
+            color: hsl(var(--muted-foreground));
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding: 10px;
+            border: 1px solid hsl(var(--border));
+            text-align: left;
+        }
+
+        .weekly-schedule-table tbody th,
+        .weekly-schedule-table tbody td {
+            border: 1px solid hsl(var(--border));
+            padding: 10px;
+            vertical-align: top;
+            background: white;
+        }
+
+        .weekly-schedule-time {
+            width: 96px;
+            font-size: 12px;
+            font-weight: 600;
+            color: hsl(var(--muted-foreground));
+            background: hsl(var(--secondary));
+        }
+
+        .schedule-entry {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            background: hsl(var(--secondary));
+            border-radius: 10px;
+            padding: 10px;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+        }
+
+        .schedule-entry + .schedule-entry {
+            margin-top: 10px;
+        }
+
+        .schedule-entry-time {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: hsl(var(--muted-foreground));
+        }
+
+        .schedule-entry-code {
+            font-weight: 600;
+            font-size: 13px;
+            color: hsl(var(--foreground));
+        }
+
+        .schedule-entry-title {
+            font-size: 12px;
+            color: hsl(var(--foreground));
+        }
+
+        .schedule-entry-meta,
+        .schedule-entry-notes {
+            font-size: 11px;
+            color: hsl(var(--muted-foreground));
+        }
+
         .generic-table-body pre {
             margin: 0;
             white-space: pre-wrap;
@@ -621,7 +742,7 @@
     <div class="header">
         <div class="logo-container">
             <div class="logo-icon">(a)</div>
-            <div class="logo-version">v4.1.2</div>
+            <div class="logo-version" data-version>v0.0.0</div>
         </div>
         <div class="header-actions">
             <button id="refresh-btn" class="btn btn-outline">🔄 Refresh Data</button>
@@ -629,6 +750,7 @@
                 <button id="download-btn" class="btn btn-outline">⬇️ Downloads</button>
                 <div id="download-menu-panel" class="download-menu-panel hidden" role="menu">
                     <button class="download-menu-item" data-download="json">📁 Export JSON</button>
+                    <button class="download-menu-item" data-download="classScheduleJson">📆 Class Schedule JSON</button>
                     <button class="download-menu-item" data-download="csv">📄 Export CSV</button>
                     <button class="download-menu-item" data-download="logs">🧾 Download Logs</button>
                     <button class="download-menu-item" data-download="har">📦 Export HAR</button>
@@ -662,7 +784,7 @@
                 <div class="stat-description" id="data-age-label">No runs yet</div>
             </div>
             <div class="stat-card">
-                <div class="stat-label">Session</div>
+                <div class="stat-label">AISIS Session Cookie</div>
                 <div class="stat-value-sm" id="session-summary">Idle</div>
                 <div class="stat-description" id="session-id-display">—</div>
             </div>
@@ -817,6 +939,23 @@
 
     <!-- Schedule Tab -->
     <div id="schedule-tab" class="tab-content">
+        <div class="weekly-schedule-card" id="weekly-schedule-card">
+            <div class="weekly-schedule-header">
+                <div>
+                    <div class="weekly-schedule-title">Weekly Schedule</div>
+                    <div class="weekly-schedule-subtitle">Visual overview of your My Class Schedule data</div>
+                </div>
+                <div class="weekly-schedule-meta" id="weekly-schedule-meta"></div>
+            </div>
+            <div class="weekly-schedule-container" id="weekly-schedule-container">
+                <div class="empty-state">
+                    <div class="empty-state-icon">🗓️</div>
+                    <div class="empty-state-title">No Weekly Schedule</div>
+                    <div class="empty-state-description">Scrape the My Class Schedule page to visualize your timetable.</div>
+                </div>
+            </div>
+        </div>
+
         <div class="section-title">Class Schedule</div>
         <div class="table-wrapper">
             <table class="data-table" id="schedule-table">

@@ -1,5 +1,3 @@
-// AISIS Auto Scraper - Popup Script
-
 const DATASET_LABELS = {
     officialCurriculum: 'Curriculum',
     scheduleOfClasses: 'Schedule of Classes',
@@ -14,7 +12,30 @@ const DATASET_LABELS = {
     facultyAttendance: 'Faculty Attendance'
 };
 
+const extensionApi = typeof chrome !== 'undefined' ? chrome : null;
+
+function applyExtensionVersion() {
+    if (!extensionApi?.runtime?.getManifest) {
+        return;
+    }
+    try {
+        const manifest = extensionApi.runtime.getManifest();
+        if (!manifest?.version) {
+            return;
+        }
+        const versionText = `v${manifest.version}`;
+        document.querySelectorAll('[data-version]').forEach((element) => {
+            element.textContent = versionText;
+            element.setAttribute('title', `Version ${manifest.version}`);
+        });
+    } catch (error) {
+        console.warn('Unable to determine popup version:', error);
+    }
+}
+
 document.addEventListener('DOMContentLoaded', async function() {
+    applyExtensionVersion();
+
     // DOM Elements
     const usernameInput = document.getElementById('username');
     const passwordInput = document.getElementById('password');
@@ -37,6 +58,15 @@ document.addEventListener('DOMContentLoaded', async function() {
     const resumeScrapingLogsBtn = document.getElementById('resume-scraping-logs');
     const datasetProgressSection = document.getElementById('dataset-progress-section');
     const datasetProgressList = document.getElementById('dataset-progress-list');
+    const sessionInfo = document.getElementById('session-info');
+    const sessionIdSpan = document.getElementById('session-id');
+
+    const formatCookieDisplay = (value) => {
+        if (!value) {
+            return '';
+        }
+        return value.length > 24 ? `${value.slice(0, 12)}…${value.slice(-6)}` : value;
+    };
 
     let currentWindowId = null;
 
@@ -66,13 +96,19 @@ document.addEventListener('DOMContentLoaded', async function() {
     
     // Check current scraping state
     const state = await getState();
+    const hasExistingData = state.scrapedData && Object.keys(state.scrapedData).length > 0;
     
-    // Restore session ID if exists
-    if (state.sessionId) {
-        const sessionInfo = document.getElementById('session-info');
-        const sessionIdSpan = document.getElementById('session-id');
+    // Restore session cookie if available
+    if (state.cookieSession) {
         sessionInfo.classList.remove('hidden');
-        sessionIdSpan.textContent = state.sessionId.substring(8, 20);
+        sessionIdSpan.textContent = formatCookieDisplay(state.cookieSession);
+        sessionIdSpan.title = state.cookieSession;
+    } else if (state.sessionId) {
+        sessionInfo.classList.remove('hidden');
+        sessionIdSpan.textContent = formatCookieDisplay(state.sessionId);
+        sessionIdSpan.title = state.sessionId;
+    } else if (sessionInfo) {
+        sessionInfo.classList.add('hidden');
     }
     
     restoreSelectedPages(state.selectedPages);
@@ -96,12 +132,13 @@ document.addEventListener('DOMContentLoaded', async function() {
             resumeScrapingLogsBtn.classList.remove('hidden');
         }
         applyControlState(state);
-    } else if (state.isCompleted || (state.scrapedData && Object.keys(state.scrapedData).length > 0)) {
-        // Show export section if scraping completed or data exists
-        progressSection.classList.remove('hidden');
+    } else if (state.isCompleted || hasExistingData) {
+        // Allow additional scraping runs without resetting state
+        showProgress();
         exportSection.classList.remove('hidden');
         stopScrapingBtn.classList.add('hidden');
-        startScrapingBtn.classList.add('hidden');
+        startScrapingBtn.textContent = hasExistingData ? 'Scrape More Data' : 'Start Scraping';
+        startScrapingBtn.classList.remove('hidden');
         applyControlState(state);
     } else {
         applyControlState(state);
@@ -375,12 +412,21 @@ document.addEventListener('DOMContentLoaded', async function() {
     }
     
     function updateUI(state = {}) {
-        // Update session ID display
-        const sessionInfo = document.getElementById('session-info');
-        const sessionIdSpan = document.getElementById('session-id');
-        if (state.sessionId) {
-            sessionInfo.classList.remove('hidden');
-            sessionIdSpan.textContent = state.sessionId.substring(8, 20); // Show shortened ID
+        // Update session cookie display
+        if (sessionInfo && sessionIdSpan) {
+            if (state.cookieSession) {
+                sessionInfo.classList.remove('hidden');
+                sessionIdSpan.textContent = formatCookieDisplay(state.cookieSession);
+                sessionIdSpan.title = state.cookieSession;
+            } else if (state.sessionId) {
+                sessionInfo.classList.remove('hidden');
+                sessionIdSpan.textContent = formatCookieDisplay(state.sessionId);
+                sessionIdSpan.title = state.sessionId;
+            } else {
+                sessionInfo.classList.add('hidden');
+                sessionIdSpan.textContent = '';
+                sessionIdSpan.removeAttribute('title');
+            }
         }
 
         // Update progress bar
@@ -823,7 +869,9 @@ document.addEventListener('DOMContentLoaded', async function() {
             if (hasActivity) {
                 showProgress();
             }
-            startScrapingBtn.classList.add('hidden');
+            const label = hasData ? 'Scrape More Data' : 'Start Scraping';
+            startScrapingBtn.textContent = label;
+            startScrapingBtn.classList.remove('hidden');
             stopScrapingBtn.classList.add('hidden');
             exportSection.classList.remove('hidden');
             if (stopScrapingLogsBtn && resumeScrapingLogsBtn) {

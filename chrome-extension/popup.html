@@ -39,15 +39,22 @@
             padding: 0;
         }
         
-        body {
+        html, body {
             width: 420px;
+            height: 700px;
+            overflow: hidden;
+        }
+
+        body {
             font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
             font-size: 14px;
             line-height: 1.5;
             background-color: hsl(var(--background));
             color: hsl(var(--foreground));
+            display: flex;
+            flex-direction: column;
         }
-        
+
         .header {
             background-color: hsl(var(--background));
             color: hsl(var(--foreground));
@@ -57,14 +64,28 @@
             justify-content: space-between;
             border-bottom: 1px solid hsl(var(--border));
         }
-        
+
+        .popup-content {
+            flex: 1 1 auto;
+            overflow-x: hidden;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            scrollbar-width: none;
+            padding-bottom: 20px;
+        }
+
+        .popup-content::-webkit-scrollbar {
+            display: none;
+        }
+
         .session-info {
             display: flex;
             flex-direction: column;
             align-items: flex-end;
             gap: 2px;
         }
-        
+
         .session-label {
             font-size: 9px;
             color: hsl(var(--muted-foreground));
@@ -79,11 +100,12 @@
             font-weight: 500;
         }
         
-        .logo {
+        .logo-container {
             display: flex;
             align-items: center;
+            gap: 8px;
         }
-        
+
         .logo-icon {
             font-size: 1.5rem;
             font-weight: 700;
@@ -93,16 +115,15 @@
             position: relative;
             top: 2px;
         }
-        
-        .version-inline {
+
+        .logo-version {
             font-size: 10px;
             color: hsl(var(--muted-foreground));
             font-weight: 500;
             line-height: 1.2;
             text-transform: uppercase;
-            position: relative;
-            top: 7.3px;
-            margin-left: 6px;
+            letter-spacing: 0.05em;
+            margin-top: 2px;
         }
         
         .section {
@@ -401,16 +422,17 @@
 <body>
     <!-- Header -->
     <div class="header">
-        <div class="logo">
+        <div class="logo-container">
             <span class="logo-icon">(a)</span>
-            <span class="version-inline">v4.0</span>
+            <span class="logo-version" data-version>v0.0.0</span>
         </div>
         <div id="session-info" class="session-info hidden">
-            <span class="session-label">Session:</span>
+            <span class="session-label">AISIS Cookie</span>
             <span id="session-id" class="session-id"></span>
         </div>
     </div>
-    
+
+    <div class="popup-content">
     <!-- Credentials Section -->
     <div class="section" id="credentials-section">
         <div class="section-title">AISIS Credentials</div>
@@ -514,7 +536,9 @@
             <button id="clear-all-data" class="btn-outline" style="width: 100%;">Clear All Data & Start Fresh</button>
         </div>
     </div>
-    
+
+    </div>
+
     <script src="popup.js"></script>
 </body>
 </html>

@@ -35,6 +35,25 @@ function getChromeApi() {
 
 const extensionApi = getChromeApi();
 
+function applyExtensionVersion() {
+    if (!extensionApi?.runtime?.getManifest) {
+        return;
+    }
+    try {
+        const manifest = extensionApi.runtime.getManifest();
+        if (!manifest?.version) {
+            return;
+        }
+        const versionText = `v${manifest.version}`;
+        document.querySelectorAll('[data-version]').forEach((element) => {
+            element.textContent = versionText;
+            element.setAttribute('title', `Version ${manifest.version}`);
+        });
+    } catch (error) {
+        console.warn('Unable to determine extension version:', error);
+    }
+}
+
 function sendRuntimeMessage(message) {
     return new Promise((resolve, reject) => {
         if (!extensionApi?.runtime?.sendMessage) {
@@ -203,6 +222,169 @@ function deriveClassSchedule(dataset) {
     })).filter((entry) => Object.values(entry).some(value => value && value !== '--'));
 }
 
+function getWeeklyScheduleFromDataset(dataset) {
+    if (!dataset || !isPlainObject(dataset)) {
+        return null;
+    }
+    const schedule = dataset.weeklySchedule;
+    if (!schedule || !Array.isArray(schedule.days) || !Array.isArray(schedule.slots)) {
+        return null;
+    }
+    return schedule;
+}
+
+function formatScheduleEventTime(event) {
+    if (!event) {
+        return '';
+    }
+    if (event.timeLabel) {
+        return event.timeLabel;
+    }
+    if (event.startTime && event.endTime) {
+        return `${event.startTime} - ${event.endTime}`;
+    }
+    return '';
+}
+
+function convertWeeklyScheduleToRows(schedule) {
+    if (!schedule || !Array.isArray(schedule.events)) {
+        return [];
+    }
+    return schedule.events.map((event) => ({
+        courseCode: event.courseCode || event.summary || '--',
+        section: event.section || '--',
+        schedule: `${event.dayLabel || ''} ${formatScheduleEventTime(event)}`.trim(),
+        room: event.room || '--',
+        instructor: event.instructor || '--'
+    }));
+}
+
+function renderScheduleEntry(event) {
+    const parts = [];
+    const time = formatScheduleEventTime(event);
+    if (time) {
+        parts.push(`<div class="schedule-entry-time">${escapeHtml(time)}</div>`);
+    }
+
+    const codeLabel = event.courseCode || event.summary || 'Class';
+    parts.push(`<div class="schedule-entry-code">${escapeHtml(codeLabel)}</div>`);
+
+    if (event.courseTitle && event.courseTitle !== codeLabel) {
+        parts.push(`<div class="schedule-entry-title">${escapeHtml(event.courseTitle)}</div>`);
+    }
+
+    const metaPieces = [];
+    if (event.section) {
+        metaPieces.push(`Section ${event.section}`);
+    }
+    if (event.mode) {
+        metaPieces.push(event.mode);
+    }
+    if (metaPieces.length) {
+        parts.push(`<div class="schedule-entry-meta">${escapeHtml(metaPieces.join(' • '))}</div>`);
+    }
+
+    if (event.room) {
+        parts.push(`<div class="schedule-entry-meta">${escapeHtml(event.room)}</div>`);
+    }
+    if (event.instructor) {
+        parts.push(`<div class="schedule-entry-meta">${escapeHtml(event.instructor)}</div>`);
+    }
+
+    const notes = Array.isArray(event.details) ? event.details.filter(Boolean) : [];
+    if (notes.length) {
+        parts.push(`<div class="schedule-entry-notes">${notes.map(note => escapeHtml(note)).join('<br>')}</div>`);
+    }
+
+    return `<div class="schedule-entry">${parts.join('')}</div>`;
+}
+
+function renderWeeklySchedule(schedule, capturedAt) {
+    const container = document.getElementById('weekly-schedule-container');
+    const meta = document.getElementById('weekly-schedule-meta');
+    if (!container || !meta) {
+        return;
+    }
+
+    if (!schedule || !Array.isArray(schedule.days) || schedule.days.length === 0) {
+        container.innerHTML = buildEmptyState({
+            icon: '🗓️',
+            title: 'No Weekly Schedule',
+            description: 'Scrape the My Class Schedule page to visualize your timetable.'
+        });
+        meta.textContent = '';
+        return;
+    }
+
+    const days = schedule.days;
+    const slots = Array.isArray(schedule.slots)
+        ? schedule.slots.filter(slot => Array.isArray(slot.entries)
+            && slot.entries.some(entry => days.some(day => entry.dayKey === day.key)))
+        : [];
+
+    if (!slots.length) {
+        container.innerHTML = buildEmptyState({
+            icon: '🗓️',
+            title: 'No Weekly Schedule',
+            description: 'Scrape the My Class Schedule page to visualize your timetable.'
+        });
+        meta.textContent = '';
+        return;
+    }
+
+    const headerCells = days.map(day => `<th>${escapeHtml(day.label)}</th>`).join('');
+
+    const bodyRows = slots.map(slot => {
+        const rowCells = days.map(day => {
+            const entries = Array.isArray(slot.entries)
+                ? slot.entries.filter(entry => entry.dayKey === day.key)
+                : [];
+            if (!entries.length) {
+                return '<td></td>';
+            }
+            const entryHtml = entries.map(renderScheduleEntry).join('');
+            return `<td>${entryHtml}</td>`;
+        }).join('');
+
+        return `
+            <tr>
+                <th class="weekly-schedule-time">${escapeHtml(slot.label || slot.rawLabel || '')}</th>
+                ${rowCells}
+            </tr>
+        `;
+    }).join('');
+
+    container.innerHTML = `
+        <div class="weekly-schedule-scroll">
+            <table class="weekly-schedule-table">
+                <thead>
+                    <tr>
+                        <th class="weekly-schedule-time">Time</th>
+                        ${headerCells}
+                    </tr>
+                </thead>
+                <tbody>
+                    ${bodyRows}
+                </tbody>
+            </table>
+        </div>
+    `;
+
+    const totalEvents = schedule.eventCount || (Array.isArray(schedule.events) ? schedule.events.length : 0);
+    const metaParts = [];
+    if (totalEvents) {
+        metaParts.push(`${totalEvents.toLocaleString()} block${totalEvents === 1 ? '' : 's'}`);
+    }
+    if (Array.isArray(schedule.days) && schedule.days.length) {
+        metaParts.push(`${schedule.days.length} day${schedule.days.length === 1 ? '' : 's'}`);
+    }
+    const timestamp = capturedAt || schedule.generatedAt;
+    if (timestamp) {
+        metaParts.push(`Captured ${escapeHtml(formatRelativeTime(timestamp))}`);
+    }
+    meta.textContent = metaParts.join(' • ');
+}
+
 async function loadDashboardData() {
     try {
         if (!extensionApi?.storage?.local) {
@@ -232,9 +414,15 @@ function applyDashboardState(state = {}) {
     loadOverviewStats(data, state);
     loadGrades(data.grades || []);
 
+    const classScheduleDataset = isPlainObject(data.classSchedule) ? data.classSchedule : null;
+    const weeklySchedule = getWeeklyScheduleFromDataset(classScheduleDataset);
+    renderWeeklySchedule(weeklySchedule, classScheduleDataset?.capturedAt);
+
     const classScheduleRows = Array.isArray(data.schedule)
         ? data.schedule
-        : deriveClassSchedule(data.classSchedule);
+        : weeklySchedule
+            ? convertWeeklyScheduleToRows(weeklySchedule)
+            : deriveClassSchedule(classScheduleDataset);
     loadSchedule(classScheduleRows);
     renderScheduleOfClasses(Array.isArray(data.scheduleOfClasses) ? data.scheduleOfClasses : []);
     renderCurriculum(Array.isArray(data.officialCurriculum) ? data.officialCurriculum : [], state.datasetProgress?.officialCurriculum);
@@ -451,6 +639,7 @@ function loadProgramOfStudy(programData) {
 
 // Load data on page load
 document.addEventListener('DOMContentLoaded', () => {
+    applyExtensionVersion();
     loadDashboardData();
 });
 
@@ -507,11 +696,22 @@ function renderOperationalStatus(state) {
     }
 
     if (sessionIdEl) {
-        if (state.sessionId) {
-            const shortId = state.sessionId.length > 10 ? `${state.sessionId.slice(0, 10)}…` : state.sessionId;
-            sessionIdEl.textContent = `#${shortId}`;
+        if (state.cookieSession) {
+            const cookie = state.cookieSession;
+            const shortCookie = cookie.length > 24
+                ? `${cookie.slice(0, 12)}…${cookie.slice(-6)}`
+                : cookie;
+            sessionIdEl.textContent = shortCookie;
+            sessionIdEl.setAttribute('title', cookie);
+        } else if (state.sessionId) {
+            const fallback = state.sessionId.length > 24
+                ? `${state.sessionId.slice(0, 12)}…${state.sessionId.slice(-6)}`
+                : state.sessionId;
+            sessionIdEl.textContent = fallback;
+            sessionIdEl.setAttribute('title', state.sessionId);
         } else {
             sessionIdEl.textContent = '—';
+            sessionIdEl.removeAttribute('title');
         }
     }
 
@@ -1486,9 +1686,34 @@ async function downloadHtmlSnapshots() {
     }
 }
 
+async function downloadClassScheduleJson() {
+    const state = await getLatestStateSnapshot();
+    const dataset = state.scrapedData?.classSchedule;
+    const schedule = getWeeklyScheduleFromDataset(dataset);
+    if (!schedule) {
+        const placeholder = {
+            message: 'No class schedule data available.',
+            generatedAt: new Date().toISOString()
+        };
+        downloadFile(JSON.stringify(placeholder, null, 2), 'class_schedule.json', 'application/json');
+        return;
+    }
+
+    const capturedAt = dataset?.capturedAt || schedule.generatedAt || new Date().toISOString();
+    const payload = {
+        generatedAt: capturedAt,
+        days: schedule.days || [],
+        slots: schedule.slots || [],
+        events: schedule.events || []
+    };
+
+    downloadFile(JSON.stringify(payload, null, 2), 'class_schedule.json', 'application/json');
+}
+
 async function handleDownloadAction(action) {
     const handlers = {
         json: downloadJsonData,
+        classScheduleJson: downloadClassScheduleJson,
         csv: downloadCsvData,
         logs: downloadLogsFile,
         har: downloadHarFile,

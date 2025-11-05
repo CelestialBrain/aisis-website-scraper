@@ -23,6 +23,38 @@ const MAX_HTML_SNAPSHOTS = 20;
 const MAX_HTML_SNAPSHOT_SIZE = 250_000; // Limit HTML snapshots to ~250 KB each
 const POPUP_DIMENSIONS = Object.freeze({ width: 420, height: 700 });
 
+const NAVIGATION_PATTERNS = [
+  /home\s*:\s*sign\s*out/i,
+  /student information system/i,
+  /official curriculum view/i,
+  /class schedules? view/i,
+  /view student grades/i,
+  /class schedule view/i,
+  /curriculum view/i,
+  /aisis main/i
+];
+
+const DAY_LABELS = {
+  mon: 'Monday',
+  monday: 'Monday',
+  tue: 'Tuesday',
+  tues: 'Tuesday',
+  tuesday: 'Tuesday',
+  wed: 'Wednesday',
+  weds: 'Wednesday',
+  wednesday: 'Wednesday',
+  thu: 'Thursday',
+  thur: 'Thursday',
+  thurs: 'Thursday',
+  thursday: 'Thursday',
+  fri: 'Friday',
+  friday: 'Friday',
+  sat: 'Saturday',
+  saturday: 'Saturday',
+  sun: 'Sunday',
+  sunday: 'Sunday'
+};
+
 const DEFAULT_METRICS = {
   totalRequests: 0,
   totalResponseTimeMs: 0,
@@ -42,6 +74,7 @@ function createInitialState(overrides = {}) {
     isPaused: false,
     isCompleted: false,
     sessionId: null,
+    cookieSession: null,
     progress: 0,
     currentStep: '',
     currentPage: '',
@@ -68,6 +101,7 @@ function createInitialState(overrides = {}) {
     pageOrder: [],
     currentDatasetIndex: 0,
     pauseRequested: false,
+    datasetProgress: {},
     ...overrides,
     metrics: { ...DEFAULT_METRICS, ...(overrides.metrics || {}) }
   };
@@ -193,6 +227,435 @@ function extractTablesFromHTML(html) {
   }
 
   return tables;
+}
+
+function cleanCellText(value) {
+  if (value === undefined || value === null) {
+    return '';
+  }
+  const stringValue = String(value)
+    .replace(/\r/g, '')
+    .replace(/\u00a0/g, ' ');
+  const lines = stringValue
+    .split('\n')
+    .map(line => line.trim())
+    .filter((line, index, array) => line.length > 0 || (index > 0 && array[index - 1].length > 0));
+  return lines.join('\n').trim();
+}
+
+function normalizeTable(table) {
+  if (!table || typeof table !== 'object') {
+    return null;
+  }
+  const headers = Array.isArray(table.headers)
+    ? table.headers.map(header => cleanCellText(header)).filter(Boolean)
+    : [];
+  const rows = Array.isArray(table.rows)
+    ? table.rows
+        .map(row => Array.isArray(row) ? row.map(cell => cleanCellText(cell)) : [])
+        .filter(row => row.some(cell => cell && cell.length > 0))
+    : [];
+
+  return {
+    caption: table.caption || null,
+    headers,
+    rows,
+    totalRows: rows.length
+  };
+}
+
+function isLikelyNavigationTable(table) {
+  if (!table) {
+    return true;
+  }
+  const rows = Array.isArray(table.rows) ? table.rows : [];
+  if (!rows.length) {
+    return true;
+  }
+  const combinedHeader = Array.isArray(table.headers) ? table.headers.join(' ') : '';
+  const combinedCells = rows.flat().join(' ');
+  const combinedText = `${combinedHeader} ${combinedCells}`.trim();
+  if (!combinedText) {
+    return true;
+  }
+  if (rows.length <= 3) {
+    return NAVIGATION_PATTERNS.some(pattern => pattern.test(combinedText));
+  }
+  return false;
+}
+
+function sanitizeTablesForDataset(dataKey, tables) {
+  if (!Array.isArray(tables)) {
+    return [];
+  }
+  return tables
+    .map(table => normalizeTable(table))
+    .filter(table => table && (!isLikelyNavigationTable(table) || table.totalRows > 3));
+}
+
+function sanitizePageText(dataKey, text) {
+  if (!text) {
+    return '';
+  }
+  const lines = text
+    .replace(/\r/g, '')
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line.length > 0 && !NAVIGATION_PATTERNS.some(pattern => pattern.test(line)));
+  return lines.join('\n');
+}
+
+function splitScheduleEntries(cellText) {
+  if (!cellText) {
+    return [];
+  }
+  const normalized = cellText.replace(/\r/g, '').trim();
+  if (!normalized) {
+    return [];
+  }
+  const doubleBreaks = normalized.split(/\n{2,}/).map(part => part.trim()).filter(Boolean);
+  if (doubleBreaks.length > 1) {
+    return doubleBreaks;
+  }
+  const lines = normalized.split('\n');
+  const entries = [];
+  let buffer = [];
+  lines.forEach(line => {
+    const isCourseHeader = /^[A-Za-z]{2,}\s*\d+[A-Za-z0-9]*/.test(line);
+    if (isCourseHeader && buffer.length) {
+      entries.push(buffer.join('\n').trim());
+      buffer = [line];
+    } else {
+      buffer.push(line);
+    }
+  });
+  if (buffer.length) {
+    entries.push(buffer.join('\n').trim());
+  }
+  return entries.filter(Boolean);
+}
+
+function parseTimeComponent(value, meridiemHint = null) {
+  if (!value) {
+    return null;
+  }
+  let text = String(value).trim();
+  if (!text) {
+    return null;
+  }
+  let meridiem = null;
+  const meridiemMatch = text.match(/(am|pm)$/i);
+  if (meridiemMatch) {
+    meridiem = meridiemMatch[1].toLowerCase();
+    text = text.slice(0, meridiemMatch.index).trim();
+  } else if (meridiemHint) {
+    meridiem = meridiemHint;
+  }
+  const digits = text.replace(/[^0-9]/g, '');
+  if (!digits) {
+    return null;
+  }
+  let hours;
+  let minutes;
+  if (digits.length <= 2) {
+    hours = parseInt(digits, 10);
+    minutes = 0;
+  } else if (digits.length === 3) {
+    hours = parseInt(digits.slice(0, 1), 10);
+    minutes = parseInt(digits.slice(1), 10);
+  } else {
+    hours = parseInt(digits.slice(0, digits.length - 2), 10);
+    minutes = parseInt(digits.slice(-2), 10);
+  }
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) {
+    return null;
+  }
+  if (minutes < 0 || minutes > 59) {
+    return null;
+  }
+  if (meridiem) {
+    if (meridiem === 'pm' && hours < 12) {
+      hours += 12;
+    } else if (meridiem === 'am' && hours === 12) {
+      hours = 0;
+    }
+  }
+  return { hours, minutes };
+}
+
+function parseTimeRangeLabel(label) {
+  if (!label) {
+    return null;
+  }
+  const sanitized = String(label).replace(/–|—/g, '-');
+  const parts = sanitized.split(/-|to/i).map(part => part.trim()).filter(Boolean);
+  if (parts.length < 2) {
+    return null;
+  }
+  const endMatch = parts[parts.length - 1].match(/(am|pm)$/i);
+  const meridiemHint = endMatch ? endMatch[1].toLowerCase() : null;
+  const start = parseTimeComponent(parts[0], meridiemHint);
+  const end = parseTimeComponent(parts[parts.length - 1], meridiemHint);
+  if (!start || !end) {
+    return null;
+  }
+  const startTime = `${String(start.hours).padStart(2, '0')}:${String(start.minutes).padStart(2, '0')}`;
+  const endTime = `${String(end.hours).padStart(2, '0')}:${String(end.minutes).padStart(2, '0')}`;
+  return { start: startTime, end: endTime };
+}
+
+function formatTimeRangeLabel(range, fallback = '') {
+  if (!range || !range.start || !range.end) {
+    return fallback;
+  }
+  return `${range.start} - ${range.end}`;
+}
+
+function computeDurationMinutes(startTime, endTime) {
+  if (!startTime || !endTime) {
+    return null;
+  }
+  const [startHours, startMinutes] = startTime.split(':').map(part => parseInt(part, 10));
+  const [endHours, endMinutes] = endTime.split(':').map(part => parseInt(part, 10));
+  if ([startHours, startMinutes, endHours, endMinutes].some(value => Number.isNaN(value))) {
+    return null;
+  }
+  const startTotal = startHours * 60 + startMinutes;
+  let endTotal = endHours * 60 + endMinutes;
+  if (endTotal < startTotal) {
+    endTotal += 24 * 60;
+  }
+  return endTotal - startTotal;
+}
+
+function parseScheduleBlock(block, context) {
+  if (!block) {
+    return null;
+  }
+  const cleaned = block.replace(/\r/g, '').trim();
+  if (!cleaned) {
+    return null;
+  }
+  const lines = cleaned.split('\n').map(line => line.trim()).filter(Boolean);
+  if (!lines.length) {
+    return null;
+  }
+  const firstLine = lines[0];
+  const courseMatch = firstLine.match(/^([A-Za-z]{2,}\s*\d+[A-Za-z0-9]*)/);
+  const sectionMatch = firstLine.match(/sec(?:tion)?[-\s]*([A-Za-z0-9]+)/i);
+  const modeMatch = firstLine.match(/\(([^)]+)\)/);
+  const courseCode = courseMatch ? courseMatch[1].replace(/\s+/g, ' ').toUpperCase() : null;
+  const section = sectionMatch ? sectionMatch[1].toUpperCase() : null;
+
+  const remaining = lines.slice(1);
+  let courseTitle = null;
+  let instructor = null;
+  let room = null;
+  const extraDetails = [];
+
+  remaining.forEach(line => {
+    if (!instructor && /,/.test(line) && /[A-Za-z]/.test(line)) {
+      instructor = line;
+      return;
+    }
+    if (!room && /(?:room|rm|avr|hall|lab|sec|fully|onsite|online|hyflex|hybrid|campus)/i.test(line)) {
+      room = line;
+      return;
+    }
+    if (!courseTitle) {
+      courseTitle = line;
+      return;
+    }
+    extraDetails.push(line);
+  });
+
+  if (!room) {
+    const candidate = remaining.find(line => !/,/.test(line));
+    if (candidate) {
+      room = candidate;
+    }
+  }
+
+  const durationMinutes = computeDurationMinutes(context.startTime, context.endTime);
+
+  return {
+    id: `event_${context.tableIndex}_${context.slotIndex}_${context.entryIndex}_${context.dayKey}`,
+    dayKey: context.dayKey,
+    dayLabel: context.dayLabel,
+    startTime: context.startTime,
+    endTime: context.endTime,
+    timeLabel: formatTimeRangeLabel({ start: context.startTime, end: context.endTime }, context.timeLabel),
+    durationMinutes,
+    summary: firstLine,
+    courseCode,
+    section,
+    courseTitle,
+    mode: modeMatch ? modeMatch[1] : null,
+    room: room || null,
+    instructor: instructor || null,
+    details: extraDetails,
+    lines,
+    raw: cleaned,
+    occurrence: {
+      day: context.dayLabel,
+      dayKey: context.dayKey,
+      startTime: context.startTime,
+      endTime: context.endTime,
+      durationMinutes
+    }
+  };
+}
+
+function buildWeeklySchedule(tables) {
+  if (!Array.isArray(tables) || tables.length === 0) {
+    return null;
+  }
+
+  let scheduleTable = null;
+  let scheduleTableIndex = -1;
+  for (let index = 0; index < tables.length; index += 1) {
+    const table = tables[index];
+    if (!table) {
+      continue;
+    }
+    const headers = Array.isArray(table.headers) ? table.headers : [];
+    if (!headers.length || headers.length < 2) {
+      continue;
+    }
+    const timeHeader = headers[0] || '';
+    const hasTimeHeader = /time/i.test(timeHeader) || /\d{3,4}/.test(timeHeader);
+    const dayColumns = headers.slice(1).filter(Boolean).map(header => {
+      const key = String(header).toLowerCase().replace(/[^a-z]/g, '');
+      return { header, key, label: DAY_LABELS[key] };
+    });
+    const hasValidDay = dayColumns.some(column => Boolean(column.label));
+    if (hasTimeHeader && hasValidDay) {
+      scheduleTable = table;
+      scheduleTableIndex = index;
+      break;
+    }
+  }
+
+  if (!scheduleTable) {
+    return null;
+  }
+
+  const headers = Array.isArray(scheduleTable.headers) ? scheduleTable.headers : [];
+  const dayColumns = headers
+    .map((header, index) => {
+      if (index === 0) {
+        return null;
+      }
+      const key = String(header).toLowerCase().replace(/[^a-z]/g, '');
+      const label = DAY_LABELS[key];
+      if (!label) {
+        return null;
+      }
+      return { index, key: key || `day${index}`, label };
+    })
+    .filter(Boolean);
+
+  if (!dayColumns.length) {
+    return null;
+  }
+
+  const dayOrder = dayColumns.reduce((acc, column, idx) => {
+    acc[column.key] = idx;
+    return acc;
+  }, {});
+
+  const rows = Array.isArray(scheduleTable.rows) ? scheduleTable.rows : [];
+  const slots = [];
+  const events = [];
+
+  rows.forEach((row, rowIndex) => {
+    if (!Array.isArray(row) || row.length === 0) {
+      return;
+    }
+    const timeLabel = row[0] || headers[0] || '';
+    const timeRange = parseTimeRangeLabel(timeLabel);
+    if (!timeRange) {
+      return;
+    }
+    const slot = {
+      index: rowIndex,
+      rawLabel: timeLabel,
+      label: formatTimeRangeLabel(timeRange, timeLabel),
+      startTime: timeRange.start,
+      endTime: timeRange.end,
+      entries: []
+    };
+
+    dayColumns.forEach((column) => {
+      const cellText = row[column.index] || '';
+      const trimmed = typeof cellText === 'string' ? cellText.trim() : '';
+      if (!trimmed) {
+        return;
+      }
+      const blocks = splitScheduleEntries(trimmed);
+      const segments = blocks.length ? blocks : [trimmed];
+      segments.forEach((segment, entryIndex) => {
+        const event = parseScheduleBlock(segment, {
+          dayKey: column.key,
+          dayLabel: column.label,
+          timeLabel,
+          startTime: timeRange.start,
+          endTime: timeRange.end,
+          slotIndex: rowIndex,
+          tableIndex: scheduleTableIndex,
+          entryIndex
+        });
+        if (event) {
+          events.push(event);
+          slot.entries.push(event);
+        }
+      });
+    });
+
+    slot.entryCount = slot.entries.length;
+    slots.push(slot);
+  });
+
+  if (!events.length) {
+    return null;
+  }
+
+  events.sort((a, b) => {
+    const dayDiff = (dayOrder[a.dayKey] ?? 0) - (dayOrder[b.dayKey] ?? 0);
+    if (dayDiff !== 0) {
+      return dayDiff;
+    }
+    return (a.startTime || '').localeCompare(b.startTime || '');
+  });
+
+  return {
+    days: dayColumns.map(column => ({ key: column.key, label: column.label })),
+    slots,
+    events,
+    eventCount: events.length
+  };
+}
+
+function updateCookieSession() {
+  return new Promise((resolve) => {
+    if (!chrome.cookies || typeof chrome.cookies.get !== 'function') {
+      resolve(null);
+      return;
+    }
+
+    chrome.cookies.get({ url: 'https://aisis.ateneo.edu/', name: 'JSESSIONID' }, (cookie) => {
+      if (chrome.runtime.lastError) {
+        console.warn('Failed to read AISIS session cookie:', chrome.runtime.lastError.message);
+        resolve(null);
+        return;
+      }
+
+      const value = cookie?.value || null;
+      scrapingState.cookieSession = value;
+      persistState();
+      resolve(value);
+    });
+  });
 }
 
 // Load persisted state on startup
@@ -907,6 +1370,7 @@ async function login(username, password, retryCount = 0) {
     // Check if login was successful (look for welcome page or specific content)
     if (responseText.includes('welcome') || loginResponse.url.includes('welcome.do')) {
       addLog('Login successful!', 'success', { step: 'login' });
+      await updateCookieSession();
       return true;
     } else {
       throw new Error('Login failed: Invalid credentials or unexpected response');
@@ -1164,6 +1628,16 @@ async function startScraping(options) {
   // Generate or keep existing session ID
   const sessionId = scrapingState.sessionId || generateSessionId();
 
+  const preservedScrapedData = scrapingState.scrapedData || {};
+  const preservedDatasetProgress = scrapingState.datasetProgress || {};
+  const preservedHtmlSnapshots = scrapingState.htmlSnapshots || {};
+  const preservedHtmlSnapshotOrder = Array.isArray(scrapingState.htmlSnapshotOrder)
+    ? scrapingState.htmlSnapshotOrder
+    : [];
+  const preservedHarEntries = Array.isArray(scrapingState.harEntries) ? scrapingState.harEntries : [];
+  const preservedMetrics = scrapingState.metrics || { ...DEFAULT_METRICS };
+  const preservedCookieSession = scrapingState.cookieSession || null;
+
   const rawPages = (options && options.pages) || {};
   const pages = normalizePageSelection(rawPages);
   const selectedPageKeys = Object.keys(pages).filter(key => pages[key]);
@@ -1184,14 +1658,18 @@ async function startScraping(options) {
     substepProgress: 0,
     startTime: Date.now(),
     startedAt: new Date().toISOString(),
-    scrapedData: {},
+    scrapedData: preservedScrapedData,
+    datasetProgress: preservedDatasetProgress,
     errors: [],
-    harEntries: [],
-    htmlSnapshots: {},
+    harEntries: preservedHarEntries,
+    htmlSnapshots: preservedHtmlSnapshots,
+    htmlSnapshotOrder: preservedHtmlSnapshotOrder,
     selectedPages: pages,
     pageOrder: selectedPageKeys,
     checkpoints: {},
-    currentDatasetIndex: 0
+    currentDatasetIndex: 0,
+    metrics: preservedMetrics,
+    cookieSession: preservedCookieSession
   });
 
   updateProgress();
@@ -1927,24 +2405,47 @@ async function scrapeSimplePage(url, pageName, dataKey) {
     }
 
     const tables = extractTablesFromHTML(html);
-    const totalRows = tables.reduce((sum, table) => sum + (table.totalRows || 0), 0);
+    const sanitizedTables = sanitizeTablesForDataset(dataKey, tables);
+    const sanitizedText = sanitizePageText(dataKey, stripHtml(html));
     const truncatedHtml = html.length > MAX_HTML_SNAPSHOT_SIZE
       ? `${html.slice(0, MAX_HTML_SNAPSHOT_SIZE)}\n<!-- truncated -->`
       : html;
 
-    scrapingState.scrapedData[dataKey] = {
+    const capturedAt = new Date().toISOString();
+    const datasetPayload = {
       html: truncatedHtml,
-      text: stripHtml(html),
-      tables,
-      capturedAt: new Date().toISOString()
+      text: sanitizedText,
+      tables: sanitizedTables,
+      capturedAt
     };
+
+    let detail = 'No rows detected';
+    let items = sanitizedTables.reduce((sum, table) => sum + (table.totalRows || 0), 0);
+
+    if (dataKey === 'classSchedule') {
+      const weeklySchedule = buildWeeklySchedule(sanitizedTables);
+      if (weeklySchedule) {
+        weeklySchedule.generatedAt = capturedAt;
+        datasetPayload.weeklySchedule = weeklySchedule;
+        items = weeklySchedule.eventCount || items;
+        if (weeklySchedule.eventCount) {
+          detail = `${weeklySchedule.eventCount} scheduled block${weeklySchedule.eventCount === 1 ? '' : 's'}`;
+        }
+      }
+    }
+
+    if (!datasetPayload.weeklySchedule) {
+      detail = items > 0 ? `${items} row${items === 1 ? '' : 's'}` : 'No rows detected';
+    }
+
+    scrapingState.scrapedData[dataKey] = datasetPayload;
 
     updateDatasetProgress(dataKey, {
       label: pageName,
       completed: 1,
       total: 1,
-      items: totalRows,
-      detail: totalRows > 0 ? `${totalRows} rows` : 'No rows detected'
+      items,
+      detail
     });
     addLog(`${pageName} scraped successfully`, 'success', { step: dataKey, pageName });
     scrapingState.activeDataset = null;
