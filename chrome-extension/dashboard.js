@@ -73,27 +73,7 @@ async function loadDashboardData() {
 
         const result = await extensionApi.storage.local.get(['scrapingState']);
         const state = result.scrapingState || {};
-        const data = state.scrapedData || {};
-
-        renderOperationalStatus(state);
-        renderMetrics(state.metrics || {});
-        renderLogs(state.logs || [], state.logsTrimmed);
-        renderErrors(state.errors || []);
-
-        // Load overview stats
-        loadOverviewStats(data, state);
-
-        // Load grades
-        loadGrades(data.grades || []);
-
-        // Load schedule (prefer detailed scheduleOfClasses if available)
-        loadSchedule(data.scheduleOfClasses || data.schedule || []);
-
-        // Load student info
-        loadStudentInfo(data.studentInfo || null);
-
-        // Load program of study
-        loadProgramOfStudy(data.programOfStudy || null);
+        applyDashboardState(state);
     } catch (error) {
         console.error('Error loading dashboard data:', error);
     }
