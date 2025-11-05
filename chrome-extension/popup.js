@@ -46,6 +46,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     const logsSection = document.getElementById('logs-section');
     const exportSection = document.getElementById('export-section');
     const progressFill = document.getElementById('progress-fill');
+    const progressValue = document.getElementById('progress-value');
     const statusText = document.getElementById('status-text');
     const timeEstimate = document.getElementById('time-estimate');
     const logsContainer = document.getElementById('logs-container');
@@ -68,19 +69,45 @@ document.addEventListener('DOMContentLoaded', async function() {
     };
 
     let currentWindowId = null;
+    let boundsListener = null;
+    const POPUP_WIDTH = 420;
+    const POPUP_HEIGHT = 700;
+
+    function enforceWindowBounds() {
+        if (currentWindowId === null || !chrome?.windows?.update) {
+            return;
+        }
+        chrome.windows.update(currentWindowId, {
+            width: POPUP_WIDTH,
+            height: POPUP_HEIGHT
+        });
+    }
 
     if (typeof chrome !== 'undefined' && chrome.windows && chrome.windows.getCurrent) {
         chrome.windows.getCurrent((windowInfo) => {
             if (windowInfo && typeof windowInfo.id === 'number') {
                 currentWindowId = windowInfo.id;
+                enforceWindowBounds();
                 if (chrome.runtime && chrome.runtime.sendMessage) {
                     chrome.runtime.sendMessage({ action: 'registerPopupWindow', windowId: currentWindowId });
+                }
+                if (chrome.windows?.onBoundsChanged && !boundsListener) {
+                    boundsListener = (windowId) => {
+                        if (windowId === currentWindowId) {
+                            enforceWindowBounds();
+                        }
+                    };
+                    chrome.windows.onBoundsChanged.addListener(boundsListener);
                 }
             }
         });
     }
 
     window.addEventListener('unload', () => {
+        if (boundsListener && chrome?.windows?.onBoundsChanged?.removeListener) {
+            chrome.windows.onBoundsChanged.removeListener(boundsListener);
+            boundsListener = null;
+        }
         if (currentWindowId !== null && chrome?.runtime?.sendMessage) {
             chrome.runtime.sendMessage({ action: 'unregisterPopupWindow', windowId: currentWindowId });
         }
@@ -422,9 +449,14 @@ document.addEventListener('DOMContentLoaded', async function() {
         }
 
         // Update progress bar
-        const progressPercent = clampPercentage(state.progress);
-        progressFill.style.width = progressPercent + '%';
-        progressFill.textContent = progressPercent + '%';
+        const progressPercent = computeProgressPercent(state);
+        if (progressFill) {
+            progressFill.style.width = progressPercent + '%';
+            progressFill.textContent = '';
+        }
+        if (progressValue) {
+            progressValue.textContent = progressPercent + '%';
+        }
 
         // Update status text
         statusText.textContent = state.currentStep || 'Idle';
@@ -800,6 +832,29 @@ document.addEventListener('DOMContentLoaded', async function() {
             return 0;
         }
         return Math.min(100, Math.max(0, Math.round(numeric)));
+    }
+
+    function computeProgressPercent(state = {}) {
+        const totalSteps = Number(state.totalSteps);
+        const completedSteps = Number(state.completedSteps);
+        const substepProgress = Number(state.substepProgress);
+
+        if (state.isCompleted) {
+            return 100;
+        }
+
+        if (!Number.isFinite(totalSteps) || totalSteps <= 0) {
+            return clampPercentage(state.progress);
+        }
+
+        const normalizedCompleted = Number.isFinite(completedSteps) ? Math.max(0, completedSteps) : 0;
+        const normalizedSubstep = Number.isFinite(substepProgress)
+            ? Math.min(Math.max(substepProgress, 0), 0.999)
+            : 0;
+
+        const effective = Math.min(normalizedCompleted + normalizedSubstep, totalSteps);
+        const percent = (effective / totalSteps) * 100;
+        return clampPercentage(percent);
     }
 
     function collectSelectedPages() {
