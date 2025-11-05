@@ -1,25 +1,53 @@
 // AISIS Auto Scraper - Enhanced Background Script with HAR Capture
 // This version includes comprehensive debugging and HAR file generation
 
-// Global state
-let scrapingState = {
-  isRunning: false,
-  isPaused: false,
-  isCompleted: false,
-  sessionId: null,
-  progress: 0,
-  currentStep: '',
-  currentPage: '',
-  totalSteps: 0,
-  completedSteps: 0,
-  startTime: null,
-  logs: [],
-  scrapedData: {},
-  errors: [],
-  debugMode: false,
-  harEntries: [],
-  htmlSnapshots: {}
+const LOG_HISTORY_LIMIT = 500;
+
+const DEFAULT_METRICS = {
+  totalRequests: 0,
+  totalResponseTimeMs: 0,
+  avgResponseMs: 0,
+  bytesDownloaded: 0,
+  slowResponses: 0,
+  lastResponseMs: 0,
+  lastStatus: null,
+  lastRequestUrl: null,
+  lastRequestMethod: null,
+  lastRequestAt: null
 };
+
+function createInitialState(overrides = {}) {
+  return {
+    isRunning: false,
+    isPaused: false,
+    isCompleted: false,
+    sessionId: null,
+    progress: 0,
+    currentStep: '',
+    currentPage: '',
+    totalSteps: 0,
+    completedSteps: 0,
+    startTime: null,
+    logs: [],
+    scrapedData: {},
+    errors: [],
+    debugMode: false,
+    harEntries: [],
+    htmlSnapshots: {},
+    metrics: { ...DEFAULT_METRICS },
+    logsTrimmed: false,
+    lastUpdated: null,
+    startedAt: null,
+    completedAt: null,
+    lastLogAt: null,
+    selectedPages: null,
+    ...overrides,
+    metrics: { ...DEFAULT_METRICS, ...(overrides.metrics || {}) }
+  };
+}
+
+// Global state
+let scrapingState = createInitialState();
 
 // Generate session ID
 function generateSessionId() {
@@ -29,25 +57,43 @@ function generateSessionId() {
 // Load persisted state on startup
 chrome.storage.local.get('scrapingState', (result) => {
   if (result.scrapingState) {
-    scrapingState = { ...scrapingState, ...result.scrapingState, isRunning: false };
+    scrapingState = createInitialState({
+      ...result.scrapingState,
+      logs: Array.isArray(result.scrapingState.logs) ? result.scrapingState.logs.slice(-LOG_HISTORY_LIMIT) : [],
+      scrapedData: result.scrapingState.scrapedData || {},
+      errors: Array.isArray(result.scrapingState.errors) ? result.scrapingState.errors : [],
+      harEntries: Array.isArray(result.scrapingState.harEntries) ? result.scrapingState.harEntries : [],
+      htmlSnapshots: result.scrapingState.htmlSnapshots || {},
+      logsTrimmed:
+        Array.isArray(result.scrapingState.logs) && result.scrapingState.logs.length > LOG_HISTORY_LIMIT
+          ? true
+          : result.scrapingState.logsTrimmed || false
+    });
+    scrapingState.isRunning = false;
   }
 });
 
 // Persist state to storage
 function persistState() {
+  scrapingState.lastUpdated = new Date().toISOString();
   chrome.storage.local.set({ scrapingState: scrapingState });
 }
 
 // Utility: Add log entry
-function addLog(message, type = 'info') {
+function addLog(message, type = 'info', context = {}) {
   const timestamp = new Date().toISOString();
-  const logEntry = { timestamp, message, type };
+  const logEntry = { timestamp, message, type, context };
   scrapingState.logs.push(logEntry);
-  console.log(`[${type.toUpperCase()}] ${message}`);
-  
+  scrapingState.lastLogAt = timestamp;
+  if (scrapingState.logs.length > LOG_HISTORY_LIMIT) {
+    scrapingState.logs = scrapingState.logs.slice(-LOG_HISTORY_LIMIT);
+    scrapingState.logsTrimmed = true;
+  }
+  console.log(`[${type.toUpperCase()}] ${message}` + (Object.keys(context || {}).length ? ` ${JSON.stringify(context)}` : ''));
+
   // Persist state
   persistState();
-  
+
   // Send update to popup
   chrome.runtime.sendMessage({ 
     action: 'updateProgress', 
@@ -141,6 +187,28 @@ async function loadCredentials() {
 // Utility: Delay function for rate limiting
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function recordRequestMetrics({ url, method, status, responseTime, bytes }) {
+  if (!scrapingState.metrics) {
+    scrapingState.metrics = { ...DEFAULT_METRICS };
+  }
+
+  const metrics = scrapingState.metrics;
+  metrics.totalRequests += 1;
+  metrics.totalResponseTimeMs += responseTime;
+  metrics.avgResponseMs = Math.round(metrics.totalResponseTimeMs / metrics.totalRequests);
+  metrics.bytesDownloaded += bytes;
+  metrics.lastResponseMs = responseTime;
+  metrics.lastStatus = status;
+  metrics.lastRequestUrl = url;
+  metrics.lastRequestMethod = method;
+  metrics.lastRequestAt = new Date().toISOString();
+  if (responseTime > 5000) {
+    metrics.slowResponses += 1;
+  }
+
+  persistState();
 }
 
 // Utility: Parse HTML response (service worker compatible) - ENHANCED VERSION
@@ -265,8 +333,8 @@ let consecutiveSlowRequests = 0;
 async function fetchWithHAR(url, options = {}) {
   const startTime = Date.now();
   const method = options.method || 'GET';
-  addLog(`Fetching: ${method} ${url}`, 'debug');
-  
+  addLog(`Fetching: ${method} ${url}`, 'debug', { url, method });
+
   // Add timeout to fetch (60 seconds for slow AISIS server)
   const timeout = options.timeout || 60000;
   const controller = new AbortController();
@@ -281,25 +349,40 @@ async function fetchWithHAR(url, options = {}) {
     // Adaptive rate limiting: detect slowdowns
     if (responseTime > 5000) { // If response took more than 5 seconds
       consecutiveSlowRequests++;
-      addLog(`⚠️ Slow response: ${responseTime}ms (${consecutiveSlowRequests} consecutive slow requests)`, 'warning');
-      
+      addLog(
+        `⚠️ Slow response: ${responseTime}ms (${consecutiveSlowRequests} consecutive slow requests)`,
+        'warning',
+        { url, method, responseTime, consecutiveSlowRequests }
+      );
+
       if (consecutiveSlowRequests >= 3) {
         // Three consecutive slow requests = likely being rate limited
         const pauseDuration = 45000 + Math.random() * 15000; // 45-60 seconds
-        addLog(`⏸️ Rate limit detected! Pausing for ${Math.round(pauseDuration/1000)}s...`, 'warning');
+        addLog(
+          `⏸️ Rate limit detected! Pausing for ${Math.round(pauseDuration/1000)}s...`,
+          'warning',
+          { url, method, pauseDuration, responseTime }
+        );
         scrapingState.currentStep = `⏸️ Paused to avoid rate limiting (${Math.round(pauseDuration/1000)}s)`;
         updateProgress();
         await delay(pauseDuration);
         consecutiveSlowRequests = 0; // Reset counter after pause
-        addLog('▶️ Resuming scraping...', 'info');
+        addLog('▶️ Resuming scraping...', 'info', { url, method });
       }
     } else if (responseTime < 2000) {
       // Fast response = reset slow request counter
       consecutiveSlowRequests = 0;
     }
-    
+
     const responseText = await response.text();
-    
+    recordRequestMetrics({
+      url,
+      method,
+      status: response.status,
+      responseTime,
+      bytes: responseText.length
+    });
+
     // Convert headers to array format for HAR
     const requestHeaders = [];
     if (options.headers) {
@@ -337,10 +420,24 @@ async function fetchWithHAR(url, options = {}) {
   } catch (error) {
     clearTimeout(timeoutId);
     if (error.name === 'AbortError') {
-      addLog(`⏱️ Request timeout after ${timeout/1000}s: ${url}`, 'error');
+      addLog(`⏱️ Request timeout after ${timeout/1000}s: ${url}`, 'error', { url, method, timeout });
+      recordRequestMetrics({
+        url,
+        method,
+        status: 'timeout',
+        responseTime: timeout,
+        bytes: 0
+      });
       throw new Error(`Request timeout after ${timeout/1000}s`);
     }
-    addLog(`❌ Fetch error for ${url}: ${error.message}`, 'error');
+    addLog(`❌ Fetch error for ${url}: ${error.message}`, 'error', { url, method });
+    recordRequestMetrics({
+      url,
+      method,
+      status: 'error',
+      responseTime: Date.now() - startTime,
+      bytes: 0
+    });
     throw error;
   }
 }
@@ -349,15 +446,16 @@ async function fetchWithHAR(url, options = {}) {
 // Login to AISIS with retry logic
 async function login(username, password, retryCount = 0) {
   const maxRetries = 3;
-  addLog('Starting login process...', 'info');
-  
+  scrapingState.currentPage = 'login';
+  addLog('Starting login process...', 'info', { step: 'login', attempt: retryCount + 1 });
+
   try {
     // Step 1: Get login page to acquire cookies
     if (retryCount > 0) {
-      addLog(`Retry attempt ${retryCount}/${maxRetries}...`, 'warning');
+      addLog(`Retry attempt ${retryCount}/${maxRetries}...`, 'warning', { step: 'login', attempt: retryCount + 1 });
     }
-    addLog('Fetching login page...', 'info');
-    addLog('Sending GET request to displayLogin.do', 'debug');
+    addLog('Fetching login page...', 'info', { step: 'login', page: 'displayLogin.do' });
+    addLog('Sending GET request to displayLogin.do', 'debug', { step: 'login', page: 'displayLogin.do' });
     
     const loginPageResponse = await fetchWithHAR('https://aisis.ateneo.edu/j_aisis/displayLogin.do', {
       method: 'GET',
@@ -376,15 +474,19 @@ async function login(username, password, retryCount = 0) {
       credentials: 'include'
     });
     
-    addLog(`Login page response: ${loginPageResponse.status} ${loginPageResponse.statusText}`, 'debug');
+    addLog(`Login page response: ${loginPageResponse.status} ${loginPageResponse.statusText}`, 'debug', {
+      step: 'login',
+      page: 'displayLogin.do',
+      status: loginPageResponse.status
+    });
     
     if (!loginPageResponse.ok) {
       throw new Error(`Failed to load login page: ${loginPageResponse.status}`);
     }
     
-    addLog('Parsing login page HTML...', 'debug');
+    addLog('Parsing login page HTML...', 'debug', { step: 'login' });
     const loginPageHTML = await loginPageResponse.text();
-    addLog(`Received ${loginPageHTML.length} bytes of HTML`, 'debug');
+    addLog(`Received ${loginPageHTML.length} bytes of HTML`, 'debug', { step: 'login', bytes: loginPageHTML.length });
     saveHTMLSnapshot('login_page', loginPageHTML);
     const doc = parseHTML(loginPageHTML);
     
@@ -393,13 +495,13 @@ async function login(username, password, retryCount = 0) {
     const rndInput = doc.querySelector('input[name="rnd"]');
     if (rndInput) {
       rndToken = rndInput.value;
-      addLog(`Extracted rnd token: ${rndToken.substring(0, 10)}...`, 'debug');
+      addLog(`Extracted rnd token: ${rndToken.substring(0, 10)}...`, 'debug', { step: 'login' });
     } else {
-      addLog('No rnd token found in login page', 'debug');
+      addLog('No rnd token found in login page', 'debug', { step: 'login' });
     }
-    
+
     // Step 2: Submit login credentials
-    addLog('Submitting credentials...', 'info');
+    addLog('Submitting credentials...', 'info', { step: 'login' });
     const formData = new URLSearchParams();
     formData.append('userName', username);
     formData.append('password', password);
@@ -409,7 +511,7 @@ async function login(username, password, retryCount = 0) {
       formData.append('rnd', rndToken);
     }
     
-    addLog('Sending POST request to login.do...', 'debug');
+    addLog('Sending POST request to login.do...', 'debug', { step: 'login', page: 'login.do' });
     const loginResponse = await fetchWithHAR('https://aisis.ateneo.edu/j_aisis/login.do', {
       method: 'POST',
       headers: {
@@ -432,33 +534,37 @@ async function login(username, password, retryCount = 0) {
       redirect: 'follow'
     });
     
-    addLog(`Login response: ${loginResponse.status} ${loginResponse.statusText}`, 'debug');
-    addLog(`Redirected to: ${loginResponse.url}`, 'debug');
+    addLog(`Login response: ${loginResponse.status} ${loginResponse.statusText}`, 'debug', {
+      step: 'login',
+      page: 'login.do',
+      status: loginResponse.status
+    });
+    addLog(`Redirected to: ${loginResponse.url}`, 'debug', { step: 'login', page: 'login.do' });
     
     if (!loginResponse.ok) {
       throw new Error(`Login failed: ${loginResponse.status}`);
     }
     
-    addLog('Reading login response...', 'debug');
+    addLog('Reading login response...', 'debug', { step: 'login' });
     const responseText = await loginResponse.text();
-    addLog(`Received ${responseText.length} bytes`, 'debug');
+    addLog(`Received ${responseText.length} bytes`, 'debug', { step: 'login', bytes: responseText.length });
     saveHTMLSnapshot('login_response', responseText);
     
     // Check if login was successful (look for welcome page or specific content)
     if (responseText.includes('welcome') || loginResponse.url.includes('welcome.do')) {
-      addLog('Login successful!', 'success');
+      addLog('Login successful!', 'success', { step: 'login' });
       return true;
     } else {
       throw new Error('Login failed: Invalid credentials or unexpected response');
     }
     
   } catch (error) {
-    addLog(`Login error: ${error.message}`, 'error');
+    addLog(`Login error: ${error.message}`, 'error', { step: 'login', error: error.message });
     
     // Retry logic with exponential backoff
     if (retryCount < maxRetries && (error.message.includes('timeout') || error.message.includes('network'))) {
       const backoffDelay = Math.pow(2, retryCount) * 2000; // 2s, 4s, 8s
-      addLog(`⏳ Waiting ${backoffDelay/1000}s before retry...`, 'warning');
+      addLog(`⏳ Waiting ${backoffDelay/1000}s before retry...`, 'warning', { step: 'login', backoffDelay });
       await new Promise(resolve => setTimeout(resolve, backoffDelay));
       return await login(username, password, retryCount + 1);
     }
@@ -548,40 +654,27 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'deleteLogs') {
     // Only clear logs, keep session and data
     scrapingState.logs = [];
+    scrapingState.logsTrimmed = false;
+    scrapingState.lastLogAt = null;
     persistState();
     sendResponse({ success: true });
     return true;
   }
-  
+
   if (request.action === 'clearLogs') {
     scrapingState.logs = [];
     scrapingState.harEntries = [];
     scrapingState.htmlSnapshots = {};
+    scrapingState.logsTrimmed = false;
+    scrapingState.lastLogAt = null;
     persistState();
     sendResponse({ success: true });
     return true;
   }
-  
+
   if (request.action === 'clearAllData') {
     // Reset everything to initial state
-    scrapingState = {
-      isRunning: false,
-      isPaused: false,
-      isCompleted: false,
-      sessionId: null,
-      progress: 0,
-      currentStep: '',
-      currentPage: '',
-      totalSteps: 0,
-      completedSteps: 0,
-      startTime: null,
-      logs: [],
-      scrapedData: {},
-      errors: [],
-      debugMode: false,
-      harEntries: [],
-      htmlSnapshots: {}
-    };
+    scrapingState = createInitialState();
     persistState();
     sendResponse({ success: true });
     return true;
@@ -609,26 +702,29 @@ async function startScraping(options) {
   const sessionId = scrapingState.sessionId || generateSessionId();
   
   // Reset state
-  scrapingState = {
+  scrapingState = createInitialState({
     isRunning: true,
-    isPaused: false,
-    isCompleted: false,
     sessionId: sessionId,
     progress: 0,
     currentStep: 'Initializing...',
+    currentPage: 'initializing',
     totalSteps: 0,
     completedSteps: 0,
     startTime: Date.now(),
-    logs: [],
+    startedAt: new Date().toISOString(),
     scrapedData: {},
     errors: [],
-    debugMode: false,
     harEntries: [],
-    htmlSnapshots: {}
-  };
-  
-  addLog('=== AISIS Scraping Started ===', 'info');
-  addLog(`Selected pages: ${Object.keys(options.pages).filter(k => options.pages[k]).join(', ')}`, 'info');
+    htmlSnapshots: {},
+    selectedPages: options.pages
+  });
+
+  addLog('=== AISIS Scraping Started ===', 'info', { sessionId, step: 'bootstrap' });
+  addLog(
+    `Selected pages: ${Object.keys(options.pages).filter(k => options.pages[k]).join(', ')}`,
+    'info',
+    { step: 'bootstrap', pages: options.pages }
+  );
   
   try {
     // Step 1: Login
@@ -701,8 +797,9 @@ async function startScraping(options) {
     scrapingState.isPaused = false;
     scrapingState.progress = 100;
     scrapingState.currentStep = 'Scraping complete!';
-    addLog('=== Scraping Completed Successfully ===', 'success');
-    
+    scrapingState.completedAt = new Date().toISOString();
+    addLog('=== Scraping Completed Successfully ===', 'success', { sessionId, step: 'complete' });
+
     // Persist final state
     persistState();
     
@@ -715,10 +812,11 @@ async function startScraping(options) {
   } catch (error) {
     scrapingState.isRunning = false;
     scrapingState.currentStep = `Error: ${error.message}`;
-    addLog(`Fatal error: ${error.message}`, 'error');
+    scrapingState.completedAt = new Date().toISOString();
+    addLog(`Fatal error: ${error.message}`, 'error', { step: 'main', sessionId, error: error.message });
     scrapingState.errors.push({ step: 'main', error: error.message });
-    
-    chrome.runtime.sendMessage({ 
+
+    chrome.runtime.sendMessage({
       action: 'scrapingError', 
       state: scrapingState 
     }).catch(() => {});
@@ -743,8 +841,9 @@ function updateProgress() {
 
 // Scrape Schedule of Classes
 async function scrapeScheduleOfClasses() {
+  scrapingState.currentPage = 'scheduleOfClasses';
   scrapingState.currentStep = 'Scraping Schedule of Classes...';
-  addLog('Starting Schedule of Classes scrape', 'info');
+  addLog('Starting Schedule of Classes scrape', 'info', { step: 'scheduleOfClasses' });
   
   try {
     // Step 1: Load the page to get available departments
@@ -779,9 +878,9 @@ async function scrapeScheduleOfClasses() {
           departments.push(value);
         }
       });
-      addLog(`Found ${departments.length} departments`, 'info');
+      addLog(`Found ${departments.length} departments`, 'info', { step: 'scheduleOfClasses' });
     } else {
-      addLog('Could not find department dropdown', 'warning');
+      addLog('Could not find department dropdown', 'warning', { step: 'scheduleOfClasses' });
     }
     
     // Extract applicable period (semester)
@@ -794,20 +893,25 @@ async function scrapeScheduleOfClasses() {
       }
     }
     
-    addLog(`Using period: ${applicablePeriod}`, 'info');
+    addLog(`Using period: ${applicablePeriod}`, 'info', { step: 'scheduleOfClasses', period: applicablePeriod });
     
     // Step 2: Scrape each department
     scrapingState.scrapedData.scheduleOfClasses = [];
     
     for (let i = 0; i < departments.length; i++) {
       if (!scrapingState.isRunning) {
-        addLog('Scraping stopped by user', 'warning');
+        addLog('Scraping stopped by user', 'warning', { step: 'scheduleOfClasses' });
         break;
       }
-      
+
       const dept = departments[i];
       scrapingState.currentStep = `Scraping ${dept} schedule (${i + 1}/${departments.length})...`;
-      addLog(`Fetching schedule for department: ${dept}`, 'info');
+      addLog(`Fetching schedule for department: ${dept}`, 'info', {
+        step: 'scheduleOfClasses',
+        department: dept,
+        index: i + 1,
+        total: departments.length
+      });
       
       try {
         const formData = new URLSearchParams();
@@ -897,15 +1001,27 @@ async function scrapeScheduleOfClasses() {
               }
             }
             
-            addLog(`Scraped ${classCount} classes from ${dept}`, 'success');
+            addLog(`Scraped ${classCount} classes from ${dept}`, 'success', {
+              step: 'scheduleOfClasses',
+              department: dept,
+              items: classCount
+            });
           } else {
-            addLog(`No schedule table found for ${dept}`, 'warning');
+            addLog(`No schedule table found for ${dept}`, 'warning', { step: 'scheduleOfClasses', department: dept });
           }
         } else {
-          addLog(`Failed to fetch ${dept}: ${response.status}`, 'error');
+          addLog(`Failed to fetch ${dept}: ${response.status}`, 'error', {
+            step: 'scheduleOfClasses',
+            department: dept,
+            status: response.status
+          });
         }
       } catch (deptError) {
-        addLog(`Error processing ${dept}: ${deptError.message}`, 'error');
+        addLog(`Error processing ${dept}: ${deptError.message}`, 'error', {
+          step: 'scheduleOfClasses',
+          department: dept,
+          error: deptError.message
+        });
         scrapingState.errors.push({ step: `schedule_${dept}`, error: deptError.message });
       }
       
@@ -913,20 +1029,24 @@ async function scrapeScheduleOfClasses() {
       await delay(2000 + Math.random() * 2000);
     }
     
-    addLog(`Total classes scraped: ${scrapingState.scrapedData.scheduleOfClasses.length}`, 'success');
+    addLog(`Total classes scraped: ${scrapingState.scrapedData.scheduleOfClasses.length}`, 'success', {
+      step: 'scheduleOfClasses',
+      total: scrapingState.scrapedData.scheduleOfClasses.length
+    });
     scrapingState.completedSteps++;
     updateProgress();
     
   } catch (error) {
-    addLog(`Error scraping schedule: ${error.message}`, 'error');
+    addLog(`Error scraping schedule: ${error.message}`, 'error', { step: 'scheduleOfClasses', error: error.message });
     scrapingState.errors.push({ step: 'scheduleOfClasses', error: error.message });
   }
 }
 
 // Scrape Official Curriculum
 async function scrapeOfficialCurriculum() {
+  scrapingState.currentPage = 'officialCurriculum';
   scrapingState.currentStep = 'Scraping Official Curriculum...';
-  addLog('Starting Official Curriculum scrape', 'info');
+  addLog('Starting Official Curriculum scrape', 'info', { step: 'officialCurriculum' });
   
   try {
     // Step 1: Load the page to get available degree codes
@@ -961,9 +1081,9 @@ async function scrapeOfficialCurriculum() {
           degreeCodes.push({ code: value, name: opt.textContent.trim() });
         }
       });
-      addLog(`Found ${degreeCodes.length} degree programs`, 'info');
+      addLog(`Found ${degreeCodes.length} degree programs`, 'info', { step: 'officialCurriculum' });
     } else {
-      addLog('Could not find degree code dropdown', 'warning');
+      addLog('Could not find degree code dropdown', 'warning', { step: 'officialCurriculum' });
     }
     
     // Step 2: Scrape each degree program
@@ -971,13 +1091,19 @@ async function scrapeOfficialCurriculum() {
     
     for (let i = 0; i < degreeCodes.length; i++) {
       if (!scrapingState.isRunning) {
-        addLog('Scraping stopped by user', 'warning');
+        addLog('Scraping stopped by user', 'warning', { step: 'officialCurriculum' });
         break;
       }
-      
+
       const degree = degreeCodes[i];
       scrapingState.currentStep = `Scraping ${degree.name} (${i + 1}/${degreeCodes.length})...`;
-      addLog(`Fetching curriculum for: ${degree.name}`, 'info');
+      addLog(`Fetching curriculum for: ${degree.name}`, 'info', {
+        step: 'officialCurriculum',
+        degree: degree.code,
+        name: degree.name,
+        index: i + 1,
+        total: degreeCodes.length
+      });
       
       const formData = new URLSearchParams();
       formData.append('degCode', degree.code);
@@ -1058,15 +1184,34 @@ async function scrapeOfficialCurriculum() {
           }
           
           if (courseCount > 0) {
-            addLog(`Scraped ${courseCount} courses from ${degree.name}`, 'success');
+            addLog(`Scraped ${courseCount} courses from ${degree.name}`, 'success', {
+              step: 'officialCurriculum',
+              degree: degree.code,
+              name: degree.name,
+              items: courseCount
+            });
           } else {
-            addLog(`No curriculum table found for ${degree.name}`, 'warning');
+            addLog(`No curriculum table found for ${degree.name}`, 'warning', {
+              step: 'officialCurriculum',
+              degree: degree.code,
+              name: degree.name
+            });
           }
         } else {
-          addLog(`Failed to fetch ${degree.name}: ${response.status}`, 'error');
+          addLog(`Failed to fetch ${degree.name}: ${response.status}`, 'error', {
+            step: 'officialCurriculum',
+            degree: degree.code,
+            name: degree.name,
+            status: response.status
+          });
         }
       } catch (degError) {
-        addLog(`Error processing ${degree.name}: ${degError.message}`, 'error');
+        addLog(`Error processing ${degree.name}: ${degError.message}`, 'error', {
+          step: 'officialCurriculum',
+          degree: degree.code,
+          name: degree.name,
+          error: degError.message
+        });
         scrapingState.errors.push({ step: `curriculum_${degree.code}`, error: degError.message });
       }
       
@@ -1074,20 +1219,24 @@ async function scrapeOfficialCurriculum() {
       await delay(2000 + Math.random() * 2000);
     }
     
-    addLog(`Total courses scraped: ${scrapingState.scrapedData.officialCurriculum.length}`, 'success');
+    addLog(`Total courses scraped: ${scrapingState.scrapedData.officialCurriculum.length}`, 'success', {
+      step: 'officialCurriculum',
+      total: scrapingState.scrapedData.officialCurriculum.length
+    });
     scrapingState.completedSteps++;
     updateProgress();
     
   } catch (error) {
-    addLog(`Error scraping curriculum: ${error.message}`, 'error');
+    addLog(`Error scraping curriculum: ${error.message}`, 'error', { step: 'officialCurriculum', error: error.message });
     scrapingState.errors.push({ step: 'officialCurriculum', error: error.message });
   }
 }
 
 // Simple GET page scrapers
 async function scrapeSimplePage(url, pageName, dataKey) {
+  scrapingState.currentPage = dataKey;
   scrapingState.currentStep = `Scraping ${pageName}...`;
-  addLog(`Starting ${pageName} scrape`, 'info');
+  addLog(`Starting ${pageName} scrape`, 'info', { step: dataKey, pageName, url });
   
   try {
     const response = await fetchWithHAR(url, { 
@@ -1115,14 +1264,14 @@ async function scrapeSimplePage(url, pageName, dataKey) {
       text: doc.body.textContent.trim()
     };
     
-    addLog(`${pageName} scraped successfully`, 'success');
+    addLog(`${pageName} scraped successfully`, 'success', { step: dataKey, pageName });
     scrapingState.completedSteps++;
     updateProgress();
     
     await delay(1000);
     
   } catch (error) {
-    addLog(`Error scraping ${pageName}: ${error.message}`, 'error');
+    addLog(`Error scraping ${pageName}: ${error.message}`, 'error', { step: dataKey, pageName, error: error.message });
     scrapingState.errors.push({ step: dataKey, error: error.message });
   }
 }
@@ -1130,7 +1279,8 @@ async function scrapeSimplePage(url, pageName, dataKey) {
 // Individual page scrapers
 async function scrapeGrades() {
   const dataKey = 'grades';
-  addLog('Fetching grades page...', 'info');
+  scrapingState.currentPage = dataKey;
+  addLog('Fetching grades page...', 'info', { step: dataKey });
   
   try {
     const response = await fetchWithHAR('https://aisis.ateneo.edu/j_aisis/J_VG.do');
@@ -1158,10 +1308,10 @@ async function scrapeGrades() {
     });
     
     scrapingState.scrapedData[dataKey] = grades;
-    addLog(`Scraped ${grades.length} grade entries`, 'success');
+    addLog(`Scraped ${grades.length} grade entries`, 'success', { step: dataKey, total: grades.length });
     updateProgress();
   } catch (error) {
-    addLog(`Error scraping grades: ${error.message}`, 'error');
+    addLog(`Error scraping grades: ${error.message}`, 'error', { step: dataKey, error: error.message });
     scrapingState.errors.push({ step: dataKey, error: error.message });
   }
 }
