@@ -2,6 +2,7 @@
 // This version includes comprehensive debugging and HAR file generation
 
 const LOG_HISTORY_LIMIT = 500;
+const DEFAULT_FETCH_TIMEOUT_MS = 90_000; // 90s timeout to tolerate slow AISIS responses
 
 const DEFAULT_METRICS = {
   totalRequests: 0,
@@ -112,7 +113,17 @@ function saveHTMLSnapshot(pageName, html) {
 }
 
 // Utility: Add HAR entry
-function addHAREntry(url, method, requestHeaders, requestBody, responseStatus, responseHeaders, responseBody, timing) {
+function addHAREntry(
+  url,
+  method,
+  requestHeaders,
+  requestBody,
+  responseStatus,
+  responseStatusText,
+  responseHeaders,
+  responseBody,
+  timing
+) {
     const entry = {
       startedDateTime: new Date().toISOString(),
       time: timing || 0,
@@ -127,7 +138,7 @@ function addHAREntry(url, method, requestHeaders, requestBody, responseStatus, r
     },
     response: {
       status: responseStatus,
-      statusText: responseStatus === 200 ? 'OK' : 'Error',
+      statusText: responseStatusText || null,
       headers: responseHeaders || [],
       content: {
         size: responseBody ? responseBody.length : 0,
@@ -335,8 +346,8 @@ async function fetchWithHAR(url, options = {}) {
   const method = options.method || 'GET';
   addLog(`Fetching: ${method} ${url}`, 'debug', { url, method });
 
-  // Add timeout to fetch (60 seconds for slow AISIS server)
-  const timeout = options.timeout || 60000;
+  // Add timeout to fetch (defaults to 90 seconds for slow AISIS server)
+  const timeout = options.timeout || DEFAULT_FETCH_TIMEOUT_MS;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
   
@@ -403,6 +414,7 @@ async function fetchWithHAR(url, options = {}) {
       requestHeaders,
       options.body ? options.body.toString() : null,
       response.status,
+      response.statusText,
       responseHeaders,
       responseText,
       responseTime
@@ -412,6 +424,7 @@ async function fetchWithHAR(url, options = {}) {
     return {
       ok: response.ok,
       status: response.status,
+      statusText: response.statusText,
       url: response.url,
       headers: response.headers,
       text: async () => responseText
@@ -420,7 +433,11 @@ async function fetchWithHAR(url, options = {}) {
   } catch (error) {
     clearTimeout(timeoutId);
     if (error.name === 'AbortError') {
-      addLog(`⏱️ Request timeout after ${timeout/1000}s: ${url}`, 'error', { url, method, timeout });
+      addLog(
+        `⏱️ Request timeout after ${timeout / 1000}s: ${url}`,
+        'error',
+        { url, method, timeoutMs: timeout, timeoutSeconds: timeout / 1000 }
+      );
       recordRequestMetrics({
         url,
         method,
@@ -428,7 +445,7 @@ async function fetchWithHAR(url, options = {}) {
         responseTime: timeout,
         bytes: 0
       });
-      throw new Error(`Request timeout after ${timeout/1000}s`);
+      throw new Error(`Request timeout after ${timeout / 1000}s`);
     }
     addLog(`❌ Fetch error for ${url}: ${error.message}`, 'error', { url, method });
     recordRequestMetrics({

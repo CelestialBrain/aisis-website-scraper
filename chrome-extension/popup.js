@@ -19,6 +19,8 @@ document.addEventListener('DOMContentLoaded', async function() {
     const exportJsonBtn = document.getElementById('export-json');
     const exportCsvBtn = document.getElementById('export-csv');
     const viewDataBtn = document.getElementById('view-data');
+    const stopScrapingLogsBtn = document.getElementById('stop-scraping-logs');
+    const resumeScrapingLogsBtn = document.getElementById('resume-scraping-logs');
     
     // Load saved credentials
     const credentials = await loadCredentials();
@@ -56,8 +58,10 @@ document.addEventListener('DOMContentLoaded', async function() {
         startScrapingBtn.textContent = 'Resume Scraping';
         startScrapingBtn.classList.remove('hidden');
         // Update logs section buttons
-        stopScrapingLogsBtn.classList.add('hidden');
-        resumeScrapingLogsBtn.classList.remove('hidden');
+        if (stopScrapingLogsBtn && resumeScrapingLogsBtn) {
+            stopScrapingLogsBtn.classList.add('hidden');
+            resumeScrapingLogsBtn.classList.remove('hidden');
+        }
         updateUI(state);
     } else if (state.isCompleted || (state.scrapedData && Object.keys(state.scrapedData).length > 0)) {
         // Show export section if scraping completed or data exists
@@ -160,28 +164,27 @@ document.addEventListener('DOMContentLoaded', async function() {
     });
     
     // Stop button in logs section
-    const stopScrapingLogsBtn = document.getElementById('stop-scraping-logs');
-    const resumeScrapingLogsBtn = document.getElementById('resume-scraping-logs');
-    
-    stopScrapingLogsBtn.addEventListener('click', async () => {
-        const result = await sendMessage({ action: 'stopScraping' });
-        if (result.success && result.paused) {
-            // Toggle buttons in logs section
-            stopScrapingLogsBtn.classList.add('hidden');
-            resumeScrapingLogsBtn.classList.remove('hidden');
-            
-            // Show export section and update main buttons
-            exportSection.classList.remove('hidden');
-            stopScrapingBtn.classList.add('hidden');
-            startScrapingBtn.textContent = 'Resume Scraping';
-            startScrapingBtn.classList.remove('hidden');
-        }
-    });
-    
-    resumeScrapingLogsBtn.addEventListener('click', async () => {
-        // Same as clicking main Resume button
-        startScrapingBtn.click();
-    });
+    if (stopScrapingLogsBtn && resumeScrapingLogsBtn) {
+        stopScrapingLogsBtn.addEventListener('click', async () => {
+            const result = await sendMessage({ action: 'stopScraping' });
+            if (result.success && result.paused) {
+                // Toggle buttons in logs section
+                stopScrapingLogsBtn.classList.add('hidden');
+                resumeScrapingLogsBtn.classList.remove('hidden');
+
+                // Show export section and update main buttons
+                exportSection.classList.remove('hidden');
+                stopScrapingBtn.classList.add('hidden');
+                startScrapingBtn.textContent = 'Resume Scraping';
+                startScrapingBtn.classList.remove('hidden');
+            }
+        });
+
+        resumeScrapingLogsBtn.addEventListener('click', async () => {
+            // Same as clicking main Resume button
+            startScrapingBtn.click();
+        });
+    }
     
     downloadLogsBtn.addEventListener('click', async () => {
         const state = await getState();
@@ -282,14 +285,18 @@ document.addEventListener('DOMContentLoaded', async function() {
                 startScrapingBtn.classList.remove('hidden');
                 exportSection.classList.remove('hidden');
                 // Update logs section buttons
-                stopScrapingLogsBtn.classList.add('hidden');
-                resumeScrapingLogsBtn.classList.remove('hidden');
+                if (stopScrapingLogsBtn && resumeScrapingLogsBtn) {
+                    stopScrapingLogsBtn.classList.add('hidden');
+                    resumeScrapingLogsBtn.classList.remove('hidden');
+                }
             } else if (message.state.isRunning) {
                 stopScrapingBtn.classList.remove('hidden');
                 startScrapingBtn.classList.add('hidden');
                 // Update logs section buttons
-                stopScrapingLogsBtn.classList.remove('hidden');
-                resumeScrapingLogsBtn.classList.add('hidden');
+                if (stopScrapingLogsBtn && resumeScrapingLogsBtn) {
+                    stopScrapingLogsBtn.classList.remove('hidden');
+                    resumeScrapingLogsBtn.classList.add('hidden');
+                }
             }
         } else if (message.action === 'scrapingComplete') {
             updateUI(message.state);
