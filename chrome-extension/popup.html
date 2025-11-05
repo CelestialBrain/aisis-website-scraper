@@ -287,9 +287,23 @@
             padding: 4px 0;
             border-bottom: 1px solid hsl(var(--border));
         }
-        
+
         .log-entry:last-child {
             border-bottom: none;
+        }
+
+        .log-context {
+            display: block;
+            margin-top: 2px;
+            color: hsl(var(--muted-foreground));
+            font-size: 10px;
+            opacity: 0.8;
+        }
+
+        .log-footnote {
+            font-size: 11px;
+            color: hsl(var(--muted-foreground));
+            margin-top: 8px;
         }
         
         .log-info { color: hsl(var(--muted-foreground)); }
@@ -410,6 +424,7 @@
     <div id="logs-section" class="section hidden">
         <div class="section-title">Debug Logs</div>
         <div id="logs-container" class="logs-container"></div>
+        <div id="log-limit-notice" class="log-footnote hidden">Showing the last 500 events. Export the logs for the complete history.</div>
         <div class="btn-group" style="margin-top: 12px;">
             <button id="stop-scraping-logs" class="btn-outline btn-sm btn-danger">Stop</button>
             <button id="resume-scraping-logs" class="btn-outline btn-sm btn-success hidden">Resume Scraping</button>

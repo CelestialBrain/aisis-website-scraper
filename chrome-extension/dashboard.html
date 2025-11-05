@@ -155,26 +155,45 @@
             gap: 16px;
             margin-bottom: 24px;
         }
-        
+
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
         .stat-card {
             padding: 16px;
             border-radius: 8px;
             border: 1px solid hsl(var(--border));
             background: white;
         }
-        
+
         .stat-label {
             font-size: 12px;
             color: hsl(var(--muted-foreground));
             margin-bottom: 4px;
         }
-        
+
         .stat-value {
             font-size: 24px;
             font-weight: 700;
             color: hsl(var(--primary));
         }
-        
+
+        .stat-value-sm {
+            font-size: 18px;
+            font-weight: 600;
+            color: hsl(var(--foreground));
+        }
+
+        .stat-description {
+            font-size: 12px;
+            color: hsl(var(--muted-foreground));
+            margin-top: 6px;
+        }
+
         .data-table {
             width: 100%;
             border-collapse: collapse;
@@ -262,11 +281,18 @@
             margin-bottom: 16px;
             color: hsl(var(--foreground));
         }
-        
+
+        .section-subtitle {
+            font-size: 12px;
+            font-weight: 500;
+            color: hsl(var(--muted-foreground));
+            margin-left: 8px;
+        }
+
         .hidden {
             display: none !important;
         }
-        
+
         .main-content {
             height: calc(600px - 64px);
             overflow-y: auto;
@@ -286,6 +312,109 @@
         .main-content::-webkit-scrollbar-thumb {
             background-color: hsl(var(--muted-foreground) / 0.3);
             border-radius: 3px;
+        }
+
+        .performance-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+            margin: 24px 0;
+        }
+
+        .log-list {
+            max-height: 360px;
+            overflow-y: auto;
+            background: white;
+            border: 1px solid hsl(var(--border));
+            border-radius: 8px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .log-item {
+            border-left: 3px solid transparent;
+            padding-left: 12px;
+        }
+
+        .log-item.log-error { border-color: hsl(var(--danger)); }
+        .log-item.log-warning { border-color: hsl(var(--warning)); }
+        .log-item.log-success { border-color: hsl(var(--success)); }
+
+        .log-meta {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: hsl(var(--muted-foreground));
+            display: flex;
+            gap: 12px;
+            margin-bottom: 4px;
+        }
+
+        .log-level {
+            font-weight: 600;
+        }
+
+        .log-time {
+            color: hsl(var(--muted-foreground));
+        }
+
+        .log-message {
+            font-size: 13px;
+            color: hsl(var(--foreground));
+            font-weight: 500;
+        }
+
+        .log-context {
+            font-size: 11px;
+            color: hsl(var(--muted-foreground));
+            margin-top: 6px;
+            line-height: 1.4;
+        }
+
+        .log-footnote {
+            margin-top: 12px;
+            font-size: 12px;
+            color: hsl(var(--muted-foreground));
+        }
+
+        .error-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .error-item {
+            display: flex;
+            flex-direction: column;
+            padding: 12px;
+            border: 1px solid hsl(var(--border));
+            border-radius: 8px;
+            background: white;
+        }
+
+        .error-step {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: hsl(var(--muted-foreground));
+        }
+
+        .error-message {
+            font-size: 13px;
+            color: hsl(var(--danger));
+            margin-top: 4px;
+            font-weight: 500;
+        }
+
+        .error-empty {
+            font-size: 13px;
+            color: hsl(var(--muted-foreground));
+            padding: 12px 0;
         }
     </style>
 </head>
@@ -311,10 +440,39 @@
         <button class="tab" data-tab="schedule">Schedule</button>
         <button class="tab" data-tab="student">Student Info</button>
         <button class="tab" data-tab="program">Program of Study</button>
+        <button class="tab" data-tab="logs">Logs</button>
     </div>
-    
+
     <!-- Overview Tab -->
     <div id="overview-tab" class="tab-content active">
+        <div class="status-grid">
+            <div class="stat-card">
+                <div class="stat-label">Last Scrape</div>
+                <div class="stat-value-sm" id="last-scrape">Never</div>
+                <div class="stat-description" id="data-age-label">No runs yet</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Session</div>
+                <div class="stat-value-sm" id="session-summary">Idle</div>
+                <div class="stat-description" id="session-id-display">—</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Steps Completed</div>
+                <div class="stat-value-sm" id="steps-completed">0</div>
+                <div class="stat-description" id="steps-total">No plan yet</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Errors</div>
+                <div class="stat-value-sm" id="error-count">0</div>
+                <div class="stat-description" id="error-summary">No issues detected</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Last Event</div>
+                <div class="stat-value-sm" id="last-log-message">No activity yet</div>
+                <div class="stat-description" id="last-log-time">—</div>
+            </div>
+        </div>
+
         <div class="stats-grid">
             <div class="stat-card">
                 <div class="stat-label">Current QPI</div>
@@ -333,8 +491,27 @@
                 <div class="stat-value" id="current-courses">--</div>
             </div>
         </div>
-        
-        <div class="section-title">Current Semester</div>
+
+        <div class="section-title">Scraper Health</div>
+        <div class="performance-grid">
+            <div class="stat-card">
+                <div class="stat-label">Total Requests</div>
+                <div class="stat-value" id="metric-total-requests">0</div>
+                <div class="stat-description" id="metric-last-request">--</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Average Response</div>
+                <div class="stat-value" id="metric-avg-response">--</div>
+                <div class="stat-description">Slow responses: <span id="metric-slow-responses">0</span></div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Bandwidth Used</div>
+                <div class="stat-value" id="metric-bytes">0 B</div>
+                <div class="stat-description" id="metric-last-status">--</div>
+            </div>
+        </div>
+
+        <div class="section-title">Current Semester <span id="current-term-label" class="section-subtitle">No recent term detected</span></div>
         <table class="data-table" id="current-courses-table">
             <thead>
                 <tr>
@@ -356,6 +533,11 @@
                 </tr>
             </tbody>
         </table>
+
+        <div class="section-title">Outstanding Issues</div>
+        <ul id="error-list" class="error-list">
+            <li class="error-empty">No errors recorded</li>
+        </ul>
     </div>
     
     <!-- Grades Tab -->
@@ -435,6 +617,18 @@
                 <div class="empty-state-description">Run the scraper to view your program of study</div>
             </div>
         </div>
+    </div>
+
+    <!-- Logs Tab -->
+    <div id="logs-tab" class="tab-content">
+        <div class="section-title">Recent Logs</div>
+        <div id="logs-empty" class="empty-state">
+            <div class="empty-state-icon">📝</div>
+            <div class="empty-state-title">No Logs Yet</div>
+            <div class="empty-state-description">Run the scraper to capture activity.</div>
+        </div>
+        <div id="logs-feed" class="log-list hidden"></div>
+        <div id="logs-footnote" class="log-footnote hidden">Showing latest events.</div>
     </div>
     </div><!-- End main-content -->
     

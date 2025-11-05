@@ -14,10 +14,13 @@ document.addEventListener('DOMContentLoaded', async function() {
     const statusText = document.getElementById('status-text');
     const timeEstimate = document.getElementById('time-estimate');
     const logsContainer = document.getElementById('logs-container');
+    const logLimitNotice = document.getElementById('log-limit-notice');
     const downloadLogsBtn = document.getElementById('download-logs');
     const exportJsonBtn = document.getElementById('export-json');
     const exportCsvBtn = document.getElementById('export-csv');
     const viewDataBtn = document.getElementById('view-data');
+    const stopScrapingLogsBtn = document.getElementById('stop-scraping-logs');
+    const resumeScrapingLogsBtn = document.getElementById('resume-scraping-logs');
     
     // Load saved credentials
     const credentials = await loadCredentials();
@@ -55,8 +58,10 @@ document.addEventListener('DOMContentLoaded', async function() {
         startScrapingBtn.textContent = 'Resume Scraping';
         startScrapingBtn.classList.remove('hidden');
         // Update logs section buttons
-        stopScrapingLogsBtn.classList.add('hidden');
-        resumeScrapingLogsBtn.classList.remove('hidden');
+        if (stopScrapingLogsBtn && resumeScrapingLogsBtn) {
+            stopScrapingLogsBtn.classList.add('hidden');
+            resumeScrapingLogsBtn.classList.remove('hidden');
+        }
         updateUI(state);
     } else if (state.isCompleted || (state.scrapedData && Object.keys(state.scrapedData).length > 0)) {
         // Show export section if scraping completed or data exists
@@ -159,35 +164,35 @@ document.addEventListener('DOMContentLoaded', async function() {
     });
     
     // Stop button in logs section
-    const stopScrapingLogsBtn = document.getElementById('stop-scraping-logs');
-    const resumeScrapingLogsBtn = document.getElementById('resume-scraping-logs');
-    
-    stopScrapingLogsBtn.addEventListener('click', async () => {
-        const result = await sendMessage({ action: 'stopScraping' });
-        if (result.success && result.paused) {
-            // Toggle buttons in logs section
-            stopScrapingLogsBtn.classList.add('hidden');
-            resumeScrapingLogsBtn.classList.remove('hidden');
-            
-            // Show export section and update main buttons
-            exportSection.classList.remove('hidden');
-            stopScrapingBtn.classList.add('hidden');
-            startScrapingBtn.textContent = 'Resume Scraping';
-            startScrapingBtn.classList.remove('hidden');
-        }
-    });
-    
-    resumeScrapingLogsBtn.addEventListener('click', async () => {
-        // Same as clicking main Resume button
-        startScrapingBtn.click();
-    });
+    if (stopScrapingLogsBtn && resumeScrapingLogsBtn) {
+        stopScrapingLogsBtn.addEventListener('click', async () => {
+            const result = await sendMessage({ action: 'stopScraping' });
+            if (result.success && result.paused) {
+                // Toggle buttons in logs section
+                stopScrapingLogsBtn.classList.add('hidden');
+                resumeScrapingLogsBtn.classList.remove('hidden');
+
+                // Show export section and update main buttons
+                exportSection.classList.remove('hidden');
+                stopScrapingBtn.classList.add('hidden');
+                startScrapingBtn.textContent = 'Resume Scraping';
+                startScrapingBtn.classList.remove('hidden');
+            }
+        });
+
+        resumeScrapingLogsBtn.addEventListener('click', async () => {
+            // Same as clicking main Resume button
+            startScrapingBtn.click();
+        });
+    }
     
     downloadLogsBtn.addEventListener('click', async () => {
         const state = await getState();
-        const logsText = state.logs.map(log => 
-            `[${log.timestamp}] [${log.type.toUpperCase()}] ${log.message}`
-        ).join('\n');
-        
+        const logsText = state.logs.map(log => {
+            const context = formatLogContextPlain(log.context);
+            return `[${log.timestamp}] [${log.type.toUpperCase()}] ${log.message}${context ? ' | ' + context : ''}`;
+        }).join('\n');
+
         downloadFile(logsText, 'aisis_scraper_logs.txt', 'text/plain');
     });
     
@@ -280,14 +285,18 @@ document.addEventListener('DOMContentLoaded', async function() {
                 startScrapingBtn.classList.remove('hidden');
                 exportSection.classList.remove('hidden');
                 // Update logs section buttons
-                stopScrapingLogsBtn.classList.add('hidden');
-                resumeScrapingLogsBtn.classList.remove('hidden');
+                if (stopScrapingLogsBtn && resumeScrapingLogsBtn) {
+                    stopScrapingLogsBtn.classList.add('hidden');
+                    resumeScrapingLogsBtn.classList.remove('hidden');
+                }
             } else if (message.state.isRunning) {
                 stopScrapingBtn.classList.remove('hidden');
                 startScrapingBtn.classList.add('hidden');
                 // Update logs section buttons
-                stopScrapingLogsBtn.classList.remove('hidden');
-                resumeScrapingLogsBtn.classList.add('hidden');
+                if (stopScrapingLogsBtn && resumeScrapingLogsBtn) {
+                    stopScrapingLogsBtn.classList.remove('hidden');
+                    resumeScrapingLogsBtn.classList.add('hidden');
+                }
             }
         } else if (message.action === 'scrapingComplete') {
             updateUI(message.state);
@@ -343,10 +352,16 @@ document.addEventListener('DOMContentLoaded', async function() {
         
         // Update logs
         if (state.logs && state.logs.length > 0) {
-            logsContainer.innerHTML = state.logs.map(log => 
-                `<div class="log-entry log-${log.type}">[${new Date(log.timestamp).toLocaleTimeString()}] ${log.message}</div>`
-            ).join('');
+            logsContainer.innerHTML = state.logs.map(renderLogEntry).join('');
             logsContainer.scrollTop = logsContainer.scrollHeight;
+            if (logLimitNotice) {
+                logLimitNotice.classList.toggle('hidden', !state.logsTrimmed);
+            }
+        } else {
+            logsContainer.innerHTML = '';
+            if (logLimitNotice) {
+                logLimitNotice.classList.add('hidden');
+            }
         }
     }
     
@@ -405,7 +420,53 @@ document.addEventListener('DOMContentLoaded', async function() {
             });
             csv += '\n';
         }
-        
+
         return csv || 'No data available';
+    }
+
+    function renderLogEntry(log) {
+        const time = new Date(log.timestamp).toLocaleTimeString();
+        const context = formatLogContextHTML(log.context);
+        return `<div class="log-entry log-${log.type}">[${time}] ${log.message}${context}</div>`;
+    }
+
+    function formatLogContextHTML(context = {}) {
+        if (!context || typeof context !== 'object') {
+            return '';
+        }
+        const entries = Object.entries(context).filter(([, value]) => value !== undefined && value !== null);
+        if (!entries.length) {
+            return '';
+        }
+        const formatted = entries.map(([key, value]) => `${key}: ${formatContextValue(value)}`).join(' · ');
+        return `<span class="log-context">${formatted}</span>`;
+    }
+
+    function formatLogContextPlain(context = {}) {
+        if (!context || typeof context !== 'object') {
+            return '';
+        }
+        const entries = Object.entries(context).filter(([, value]) => value !== undefined && value !== null);
+        if (!entries.length) {
+            return '';
+        }
+        return entries.map(([key, value]) => `${key}=${formatContextValue(value)}`).join(', ');
+    }
+
+    function formatContextValue(value) {
+        if (typeof value === 'number') {
+            return Number.isInteger(value) ? value : value.toFixed(2);
+        }
+        if (typeof value === 'string') {
+            return value;
+        }
+        if (value instanceof Date) {
+            return value.toISOString();
+        }
+        try {
+            return JSON.stringify(value);
+        } catch (error) {
+            return String(value);
+        }
     }
 });
