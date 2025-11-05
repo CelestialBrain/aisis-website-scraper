@@ -29,14 +29,31 @@ const DATASET_LABELS = {
     facultyAttendance: 'Faculty Attendance'
 };
 
+function getChromeApi() {
+    return typeof chrome !== 'undefined' ? chrome : null;
+}
+
 // Open scraper popup
 document.getElementById('scraper-btn').addEventListener('click', () => {
-    chrome.windows.create({
-        url: 'popup.html',
-        type: 'popup',
-        width: 420,
-        height: 700
-    });
+    const extensionApi = getChromeApi();
+    const popupUrl = extensionApi?.runtime?.getURL ? extensionApi.runtime.getURL('popup.html') : 'popup.html';
+
+    if (extensionApi?.windows?.create) {
+        extensionApi.windows.create({
+            url: popupUrl,
+            type: 'popup',
+            width: 420,
+            height: 700
+        });
+        return;
+    }
+
+    if (extensionApi?.tabs?.create) {
+        extensionApi.tabs.create({ url: popupUrl });
+        return;
+    }
+
+    window.open(popupUrl, '_blank', 'width=420,height=700');
 });
 
 // Refresh data
@@ -49,7 +66,12 @@ let latestState = null;
 
 async function loadDashboardData() {
     try {
-        const result = await chrome.storage.local.get(['scrapingState']);
+        const extensionApi = getChromeApi();
+        if (!extensionApi?.storage?.local) {
+            return;
+        }
+
+        const result = await extensionApi.storage.local.get(['scrapingState']);
         const state = result.scrapingState || {};
         const data = state.scrapedData || {};
 
@@ -312,29 +334,35 @@ document.addEventListener('DOMContentLoaded', () => {
     loadDashboardData();
 });
 
-chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== 'local' || !changes.scrapingState) {
-        return;
-    }
-    const newValue = changes.scrapingState.newValue;
-    if (newValue) {
-        applyDashboardState(newValue);
-    }
-});
+const extensionApi = getChromeApi();
 
-chrome.runtime.onMessage.addListener((message) => {
-    if (!message || !message.action) {
-        return;
-    }
+if (extensionApi?.storage?.onChanged) {
+    extensionApi.storage.onChanged.addListener((changes, area) => {
+        if (area !== 'local' || !changes.scrapingState) {
+            return;
+        }
+        const newValue = changes.scrapingState.newValue;
+        if (newValue) {
+            applyDashboardState(newValue);
+        }
+    });
+}
 
-    if (message.state && (
-        message.action === 'updateProgress' ||
-        message.action === 'scrapingComplete' ||
-        message.action === 'scrapingError'
-    )) {
-        applyDashboardState(message.state);
-    }
-});
+if (extensionApi?.runtime?.onMessage) {
+    extensionApi.runtime.onMessage.addListener((message) => {
+        if (!message || !message.action) {
+            return;
+        }
+
+        if (message.state && (
+            message.action === 'updateProgress' ||
+            message.action === 'scrapingComplete' ||
+            message.action === 'scrapingError'
+        )) {
+            applyDashboardState(message.state);
+        }
+    });
+}
 
 function renderOperationalStatus(state) {
     const lastScrapeEl = document.getElementById('last-scrape');
@@ -540,16 +568,148 @@ function buildEmptyState(config = {}) {
     `;
 }
 
-// Load program of study
-function loadProgramOfStudy(programData) {
-    const content = document.getElementById('program-content');
+function renderDatasetProgress(progressMap) {
+    const grid = document.getElementById('dataset-progress-grid');
+    const footnote = document.getElementById('dataset-progress-footnote');
 
-    if (!programData) {
-        content.innerHTML = `
-            <div class="empty-state">
-                <div class="empty-state-icon">🎓</div>
-                <div class="empty-state-title">No Program Data</div>
+    if (!grid) {
+        return;
+    }
+
+    const entries = Object.entries(progressMap || {}).filter(([, value]) => value && typeof value === 'object');
+
+    if (entries.length === 0) {
+        grid.innerHTML = buildEmptyState({
+            icon: '📈',
+            title: 'No Dataset Activity',
+            description: 'Run the scraper to track scraping progress across datasets.'
+        });
+        if (footnote) {
+            footnote.textContent = '';
+        }
+        return;
+    }
+
+    entries.sort(([, a], [, b]) => {
+        const labelA = (a.label || '').toString().toLowerCase();
+        const labelB = (b.label || '').toString().toLowerCase();
+        return labelA.localeCompare(labelB);
+    });
+
+    const cards = entries.map(([key, info]) => {
+        const label = info.label || formatDatasetName(key);
+        const total = Number.isFinite(info.total) ? info.total : 0;
+        const completed = Number.isFinite(info.completed) ? info.completed : 0;
+        const percent = total > 0
+            ? Math.min(100, Math.max(0, Math.round((completed / total) * 100)))
+            : (completed > 0 ? 100 : 0);
+
+        const metaParts = [];
+        if (Number.isFinite(info.items) && info.items > 0) {
+            metaParts.push(`${info.items.toLocaleString()} items`);
+        }
+        if (total > 0) {
+            metaParts.push(`${completed}/${total} steps`);
+        }
+        if (info.detail) {
+            metaParts.push(info.detail);
+        }
+        const meta = metaParts.join(' • ');
+
+        const updatedText = info.updatedAt ? formatRelativeTime(info.updatedAt) : '—';
+        const updatedTitle = info.updatedAt ? formatTimestamp(info.updatedAt) : '';
+
+        return `
+            <div class="dataset-progress-card">
+                <div class="dataset-progress-header">
+                    <span>${escapeHtml(label)}</span>
+                    <span class="section-subtitle" title="${escapeHtml(updatedTitle)}">${escapeHtml(updatedText)}</span>
+                </div>
+                <div class="dataset-progress-meta">${escapeHtml(meta)}</div>
+                <div class="dataset-progress-bar">
+                    <div class="dataset-progress-fill" style="width: ${percent}%;"></div>
+                </div>
             </div>
+        `;
+    });
+
+    grid.innerHTML = cards.join('');
+
+    if (footnote) {
+        footnote.textContent = `Tracking ${entries.length} dataset${entries.length === 1 ? '' : 's'}.`;
+    }
+}
+
+function renderCurriculum(curriculumData, progress = {}) {
+    const container = document.getElementById('curriculum-groups');
+    const programCountEl = document.getElementById('curriculum-program-count');
+    const courseCountEl = document.getElementById('curriculum-course-count');
+    const updatedEl = document.getElementById('curriculum-updated');
+
+    if (!container) {
+        return;
+    }
+
+    const entries = Array.isArray(curriculumData) ? curriculumData : [];
+    const groupsMap = new Map();
+
+    entries.forEach(course => {
+        const programName = course.degreeProgram || 'Program';
+        const degreeCode = course.degreeCode || '';
+        const key = `${programName}__${degreeCode}`;
+
+        if (!groupsMap.has(key)) {
+            groupsMap.set(key, {
+                program: programName,
+                code: degreeCode,
+                courses: []
+            });
+        }
+
+        groupsMap.get(key).courses.push(course);
+    });
+
+    const groups = Array.from(groupsMap.values()).sort((a, b) => a.program.localeCompare(b.program));
+
+    if (programCountEl) {
+        programCountEl.textContent = groups.length.toLocaleString();
+    }
+
+    if (courseCountEl) {
+        courseCountEl.textContent = entries.length.toLocaleString();
+    }
+
+    if (updatedEl) {
+        if (progress.updatedAt) {
+            updatedEl.textContent = formatRelativeTime(progress.updatedAt);
+            updatedEl.title = formatTimestamp(progress.updatedAt);
+        } else {
+            updatedEl.textContent = '—';
+            updatedEl.removeAttribute('title');
+        }
+    }
+
+    if (groups.length === 0) {
+        container.innerHTML = buildEmptyState({
+            icon: '📚',
+            title: 'No Curriculum Data',
+            description: 'Run the scraper with Official Curriculum selected.'
+        });
+        return;
+    }
+
+    const sections = groups.map((group, index) => {
+        const summaryMeta = [];
+        if (group.code) {
+            summaryMeta.push(group.code);
+        }
+        summaryMeta.push(`${group.courses.length.toLocaleString()} courses`);
+
+        const summary = `
+            <summary>
+                ${escapeHtml(group.program)}
+                <span class="section-subtitle">${escapeHtml(summaryMeta.join(' • '))}</span>
+            </summary>
         `;
 
         const rows = group.courses.map(course => `
@@ -564,7 +724,7 @@ function loadProgramOfStudy(programData) {
 
         return `
             <details ${index < 3 ? 'open' : ''}>
-                ${header}
+                ${summary}
                 <div class="generic-table-body">
                     <table class="data-table">
                         <thead>
@@ -583,9 +743,9 @@ function loadProgramOfStudy(programData) {
                 </div>
             </details>
         `;
-    }).join('');
+    });
 
-    container.innerHTML = sections;
+    container.innerHTML = sections.join('');
 }
 
 function renderScheduleOfClasses(classes) {
@@ -724,186 +884,20 @@ function renderGenericTable(table, index, capturedAt) {
     `;
 }
 
-// Load data on page load
-document.addEventListener('DOMContentLoaded', () => {
-    loadDashboardData();
-});
+function renderGenericTextBlock(text, capturedAt) {
+    const meta = capturedAt ? `Captured ${escapeHtml(formatRelativeTime(capturedAt))}` : '';
 
-function renderOperationalStatus(state) {
-    const lastScrapeEl = document.getElementById('last-scrape');
-    const dataAgeEl = document.getElementById('data-age-label');
-    const sessionSummaryEl = document.getElementById('session-summary');
-    const sessionIdEl = document.getElementById('session-id-display');
-    const stepsCompletedEl = document.getElementById('steps-completed');
-    const stepsTotalEl = document.getElementById('steps-total');
-    const errorCountEl = document.getElementById('error-count');
-    const errorSummaryEl = document.getElementById('error-summary');
-    const lastLogMessageEl = document.getElementById('last-log-message');
-    const lastLogTimeEl = document.getElementById('last-log-time');
-
-    const status = state.isRunning
-        ? 'Running'
-        : state.isPaused
-            ? 'Paused'
-            : state.isCompleted
-                ? 'Completed'
-                : 'Idle';
-
-    if (sessionSummaryEl) {
-        sessionSummaryEl.textContent = status;
-    }
-
-    if (sessionIdEl) {
-        if (state.sessionId) {
-            const shortId = state.sessionId.length > 10 ? `${state.sessionId.slice(0, 10)}…` : state.sessionId;
-            sessionIdEl.textContent = `#${shortId}`;
-        } else {
-            sessionIdEl.textContent = '—';
-        }
-    }
-
-    if (stepsCompletedEl) {
-        stepsCompletedEl.textContent = state.completedSteps || 0;
-    }
-
-    if (stepsTotalEl) {
-        stepsTotalEl.textContent = state.totalSteps ? `${state.completedSteps || 0} of ${state.totalSteps}` : 'No plan yet';
-    }
-
-    const errors = Array.isArray(state.errors) ? state.errors : [];
-    if (errorCountEl) {
-        errorCountEl.textContent = errors.length || 0;
-    }
-
-    if (errorSummaryEl) {
-        errorSummaryEl.textContent = errors.length > 0
-            ? errors[errors.length - 1].error || 'Unknown issue'
-            : 'No issues detected';
-    }
-
-    const lastCompleted = state.completedAt || null;
-    const lastUpdated = state.lastUpdated || null;
-    const referenceTime = lastCompleted || lastUpdated || state.startedAt;
-
-    if (lastScrapeEl) {
-        lastScrapeEl.textContent = referenceTime ? formatTimestamp(referenceTime) : 'Never';
-    }
-
-    if (dataAgeEl) {
-        dataAgeEl.textContent = referenceTime ? `Updated ${formatRelativeTime(referenceTime)}` : 'No runs yet';
-    }
-
-    const logs = Array.isArray(state.logs) ? state.logs : [];
-    const lastLog = logs.length > 0 ? logs[logs.length - 1] : null;
-
-    if (lastLogMessageEl) {
-        lastLogMessageEl.textContent = lastLog ? lastLog.message : 'No activity yet';
-    }
-
-    if (lastLogTimeEl) {
-        lastLogTimeEl.textContent = lastLog ? formatRelativeTime(lastLog.timestamp) : '—';
-    }
-}
-
-function renderMetrics(metrics) {
-    const totalRequestsEl = document.getElementById('metric-total-requests');
-    const avgResponseEl = document.getElementById('metric-avg-response');
-    const slowResponsesEl = document.getElementById('metric-slow-responses');
-    const bytesEl = document.getElementById('metric-bytes');
-    const lastStatusEl = document.getElementById('metric-last-status');
-    const lastRequestEl = document.getElementById('metric-last-request');
-
-    if (totalRequestsEl) {
-        totalRequestsEl.textContent = metrics.totalRequests || 0;
-    }
-
-    if (avgResponseEl) {
-        avgResponseEl.textContent = metrics.totalRequests
-            ? `${metrics.avgResponseMs} ms`
-            : '--';
-    }
-
-    if (slowResponsesEl) {
-        slowResponsesEl.textContent = metrics.slowResponses || 0;
-    }
-
-    if (bytesEl) {
-        bytesEl.textContent = formatBytes(metrics.bytesDownloaded);
-    }
-
-    if (lastStatusEl) {
-        lastStatusEl.textContent = metrics.lastStatus
-            ? `${metrics.lastStatus}${metrics.lastRequestMethod ? ` · ${metrics.lastRequestMethod}` : ''}`
-            : '--';
-    }
-
-    if (lastRequestEl) {
-        if (metrics.lastRequestAt) {
-            const relative = formatRelativeTime(metrics.lastRequestAt);
-            const summary = summarizeUrl(metrics.lastRequestUrl);
-            lastRequestEl.textContent = summary ? `${relative} • ${summary}` : relative;
-        } else {
-            lastRequestEl.textContent = '--';
-        }
-    }
-}
-
-function renderLogs(logs, trimmed) {
-    const feed = document.getElementById('logs-feed');
-    const emptyState = document.getElementById('logs-empty');
-    const footnote = document.getElementById('logs-footnote');
-    if (!feed) {
-        return;
-    }
-
-    if (!Array.isArray(logs) || logs.length === 0) {
-        feed.innerHTML = '';
-        feed.classList.add('hidden');
-        if (emptyState) {
-            emptyState.classList.remove('hidden');
-        }
-        if (footnote) {
-            footnote.classList.add('hidden');
-        }
-        return;
-    }
-
-    if (emptyState) {
-        emptyState.classList.add('hidden');
-    }
-
-    const LOG_DISPLAY_LIMIT = 200;
-    const recentLogs = logs.slice(-LOG_DISPLAY_LIMIT).reverse();
-    feed.innerHTML = recentLogs.map(renderLogItem).join('');
-    feed.classList.remove('hidden');
-
-    if (footnote) {
-        const truncated = trimmed || logs.length > LOG_DISPLAY_LIMIT;
-        footnote.textContent = truncated
-            ? `Showing ${recentLogs.length} of ${logs.length} events.`
-            : `Showing ${recentLogs.length} events.`;
-        footnote.classList.toggle('hidden', !truncated);
-    }
-}
-
-function renderErrors(errors) {
-    const container = document.getElementById('error-list');
-    if (!container) {
-        return;
-    }
-
-    if (!Array.isArray(errors) || errors.length === 0) {
-        container.innerHTML = '<li class="error-empty">No errors recorded</li>';
-        return;
-    }
-
-    const recentErrors = errors.slice(-5).reverse();
-    container.innerHTML = recentErrors.map(error => `
-        <li class="error-item">
-            <span class="error-step">${escapeHtml(error.step || 'Unknown')}</span>
-            <span class="error-message">${escapeHtml(error.error || 'Unknown error')}</span>
-        </li>
-    `).join('');
+    return `
+        <div class="generic-table">
+            <div class="generic-table-header">
+                <span>Captured Content</span>
+                <span>${meta}</span>
+            </div>
+            <div class="generic-table-body">
+                <pre>${escapeHtml(text)}</pre>
+            </div>
+        </div>
+    `;
 }
 
 function determineLatestTerm(grades) {
