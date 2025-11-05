@@ -549,25 +549,31 @@
         
         .empty-state {
             text-align: center;
-            padding: 60px 20px;
+            padding: 32px 20px;
             color: hsl(var(--muted-foreground));
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
         }
-        
+
         .empty-state-icon {
             font-size: 48px;
-            margin-bottom: 16px;
+            margin-bottom: 0;
             opacity: 0.3;
         }
-        
+
         .empty-state-title {
             font-size: 18px;
             font-weight: 600;
-            margin-bottom: 8px;
+            margin-bottom: 0;
             color: hsl(var(--foreground));
         }
-        
+
         .empty-state-description {
             font-size: 14px;
+            margin: 0;
         }
         
         .badge {
