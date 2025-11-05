@@ -9,7 +9,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
         :root {
-            --logo-spacing: -0.05em;
+            --logo-spacing: -0.04em;
             --primary-h: 228;
             --primary-s: 74%;
             --primary-l: 30%;
@@ -35,13 +35,28 @@
         html, body {
             width: 800px;
             height: 600px;
+        }
+
+        body {
             overflow: hidden;
             font-family: 'Inter', system-ui, sans-serif;
             font-size: 14px;
-            background-color: hsl(var(--background));
+            background: hsl(var(--secondary));
             color: hsl(var(--foreground));
+            padding: 16px;
+            display: flex;
         }
-        
+
+        .dashboard-shell {
+            flex: 1;
+            background: hsl(var(--background));
+            border-radius: 18px;
+            box-shadow: 0 24px 48px rgba(15, 23, 42, 0.12);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
         .header {
             height: 64px;
             background-color: hsl(var(--background));
@@ -61,21 +76,13 @@
         }
         
         .logo-icon {
-            font-size: 1.5rem;
+            font-size: 1.4rem;
             font-weight: 700;
             color: hsl(var(--primary));
             letter-spacing: var(--logo-spacing, -0.05em);
             line-height: 1;
             position: relative;
             top: 2px;
-        }
-        
-        .logo-version {
-            font-size: 10px;
-            color: hsl(var(--muted-foreground));
-            text-transform: uppercase;
-            font-weight: 500;
-            letter-spacing: 0.05em;
         }
         
         .header-actions {
@@ -97,7 +104,7 @@
             right: 0;
             background: white;
             border: 1px solid hsl(var(--border));
-            border-radius: 8px;
+            border-radius: 12px;
             box-shadow: 0 12px 24px rgba(15, 23, 42, 0.12);
             display: flex;
             flex-direction: column;
@@ -125,13 +132,13 @@
         }
         
         .btn {
-            padding: 6px 12px;
+            padding: 8px 18px;
             border: none;
-            border-radius: 6px;
+            border-radius: 999px;
             font-size: 13px;
-            font-weight: 500;
+            font-weight: 600;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: all 0.2s ease;
         }
         
         .btn-primary {
@@ -155,12 +162,14 @@
         
         .tabs {
             display: flex;
-            border-bottom: 1px solid hsl(var(--border));
-            background: white;
-            padding: 0 20px;
-            gap: 4px;
+            gap: 6px;
             overflow-x: auto;
             scrollbar-width: thin;
+            background: hsl(var(--background));
+            border: 1px solid hsl(var(--border));
+            border-radius: 999px;
+            padding: 6px;
+            margin-bottom: 24px;
         }
 
         .tabs::-webkit-scrollbar {
@@ -173,32 +182,37 @@
         }
 
         .tab {
-            padding: 12px 16px;
+            padding: 10px 18px;
             border: none;
             background: transparent;
             color: hsl(var(--muted-foreground));
-            font-size: 14px;
-            font-weight: 500;
+            font-size: 13px;
+            font-weight: 600;
             cursor: pointer;
-            border-bottom: 2px solid transparent;
-            transition: all 0.2s;
+            border-radius: 999px;
+            transition: background 0.2s ease, color 0.2s ease;
             flex: 0 0 auto;
         }
-        
+
         .tab:hover {
             color: hsl(var(--foreground));
+            background: hsl(var(--secondary));
         }
-        
+
         .tab.active {
-            color: hsl(var(--primary));
-            border-bottom-color: hsl(var(--primary));
+            color: hsl(var(--primary-foreground));
+            background: hsl(var(--primary));
         }
         
         .tab-content {
             display: none;
-            padding: 20px;
+            padding: 24px;
+            background: hsl(var(--background));
+            border-radius: 16px;
+            border: 1px solid hsl(var(--border));
+            box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
         }
-        
+
         .tab-content.active {
             display: block;
         }
@@ -212,7 +226,7 @@
 
         .dataset-progress-card {
             border: 1px solid hsl(var(--border));
-            border-radius: 8px;
+            border-radius: 12px;
             background: white;
             padding: 14px 16px;
             display: flex;
@@ -269,7 +283,7 @@
         .table-wrapper {
             overflow: auto;
             border: 1px solid hsl(var(--border));
-            border-radius: 8px;
+            border-radius: 12px;
             background: white;
             margin-bottom: 16px;
             max-height: 360px;
@@ -287,7 +301,7 @@
 
         .generic-table {
             border: 1px solid hsl(var(--border));
-            border-radius: 8px;
+            border-radius: 12px;
             background: white;
             overflow: hidden;
         }
@@ -451,7 +465,7 @@
 
         .accordion details {
             border: 1px solid hsl(var(--border));
-            border-radius: 8px;
+            border-radius: 12px;
             background: white;
             padding: 8px 12px;
         }
@@ -483,7 +497,7 @@
 
         .stat-card {
             padding: 16px;
-            border-radius: 8px;
+            border-radius: 12px;
             border: 1px solid hsl(var(--border));
             background: white;
         }
@@ -516,7 +530,7 @@
             width: 100%;
             border-collapse: collapse;
             background: white;
-            border-radius: 8px;
+            border-radius: 12px;
             overflow: hidden;
             border: 1px solid hsl(var(--border));
         }
@@ -613,11 +627,13 @@
         }
 
         .main-content {
-            height: calc(600px - 64px);
+            flex: 1;
             overflow-y: auto;
             overflow-x: hidden;
+            padding: 24px;
             scrollbar-width: thin;
             scrollbar-color: hsl(var(--muted-foreground) / 0.3) transparent;
+            background: hsl(var(--secondary));
         }
         
         .main-content::-webkit-scrollbar {
@@ -645,7 +661,7 @@
             overflow-y: auto;
             background: white;
             border: 1px solid hsl(var(--border));
-            border-radius: 8px;
+            border-radius: 12px;
             padding: 16px;
             display: flex;
             flex-direction: column;
@@ -712,7 +728,7 @@
             flex-direction: column;
             padding: 12px;
             border: 1px solid hsl(var(--border));
-            border-radius: 8px;
+            border-radius: 12px;
             background: white;
         }
 
@@ -738,31 +754,31 @@
     </style>
 </head>
 <body>
-    <!-- Header -->
-    <div class="header">
-        <div class="logo-container">
-            <div class="logo-icon">(a)</div>
-            <div class="logo-version" data-version>v0.0.0</div>
-        </div>
-        <div class="header-actions">
-            <button id="refresh-btn" class="btn btn-outline">🔄 Refresh Data</button>
-            <div class="download-menu" id="download-menu">
-                <button id="download-btn" class="btn btn-outline">⬇️ Downloads</button>
-                <div id="download-menu-panel" class="download-menu-panel hidden" role="menu">
-                    <button class="download-menu-item" data-download="json">📁 Export JSON</button>
-                    <button class="download-menu-item" data-download="classScheduleJson">📆 Class Schedule JSON</button>
-                    <button class="download-menu-item" data-download="csv">📄 Export CSV</button>
-                    <button class="download-menu-item" data-download="logs">🧾 Download Logs</button>
-                    <button class="download-menu-item" data-download="har">📦 Export HAR</button>
-                    <button class="download-menu-item" data-download="html">🗂️ HTML Snapshots</button>
-                </div>
+    <div class="dashboard-shell">
+        <!-- Header -->
+        <div class="header">
+            <div class="logo-container">
+                <div class="logo-icon">sisia</div>
             </div>
-            <button id="scraper-btn" class="btn btn-primary">⚙️ Scraper</button>
+            <div class="header-actions">
+                <button id="refresh-btn" class="btn btn-outline">Refresh Data</button>
+                <div class="download-menu" id="download-menu">
+                    <button id="download-btn" class="btn btn-outline">Downloads</button>
+                    <div id="download-menu-panel" class="download-menu-panel hidden" role="menu">
+                        <button class="download-menu-item" data-download="json">Export JSON</button>
+                        <button class="download-menu-item" data-download="classScheduleJson">Class Schedule JSON</button>
+                        <button class="download-menu-item" data-download="csv">Export CSV</button>
+                        <button class="download-menu-item" data-download="logs">Download Logs</button>
+                        <button class="download-menu-item" data-download="har">Export HAR</button>
+                        <button class="download-menu-item" data-download="html">HTML Snapshots</button>
+                    </div>
+                </div>
+                <button id="scraper-btn" class="btn btn-primary">Scraper</button>
+            </div>
         </div>
-    </div>
-    
-    <!-- Main Content Area -->
-    <div class="main-content">
+
+        <!-- Main Content Area -->
+        <div class="main-content">
     <!-- Tab Navigation -->
     <div class="tabs">
         <button class="tab active" data-tab="overview">Overview</button>
@@ -1074,7 +1090,8 @@
         <div id="logs-footnote" class="log-footnote hidden">Showing latest events.</div>
     </div>
     </div><!-- End main-content -->
-    
+    </div><!-- End dashboard-shell -->
+
     <script src="dashboard.js"></script>
 </body>
 </html>

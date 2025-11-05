@@ -9,7 +9,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet">
     <style>
         :root {
-            --logo-spacing: -0.05em;
+            --logo-spacing: -0.04em;
             
             /* Ateneo Blue Theme */
             --primary-h: 228;
@@ -40,8 +40,8 @@
         }
         
         html, body {
-            width: 420px;
-            height: 700px;
+            width: 520px;
+            height: 760px;
             overflow: hidden;
         }
 
@@ -92,14 +92,17 @@
             text-transform: uppercase;
             font-weight: 600;
         }
-        
+
         .session-id {
             font-size: 10px;
             color: hsl(var(--foreground));
             font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
             font-weight: 500;
+            max-width: 280px;
+            word-break: break-all;
+            text-align: right;
         }
-        
+
         .logo-container {
             display: flex;
             align-items: center;
@@ -107,23 +110,13 @@
         }
 
         .logo-icon {
-            font-size: 1.5rem;
+            font-size: 1.35rem;
             font-weight: 700;
             color: hsl(var(--primary));
             letter-spacing: var(--logo-spacing, -0.05em);
             line-height: 1;
             position: relative;
             top: 2px;
-        }
-
-        .logo-version {
-            font-size: 10px;
-            color: hsl(var(--muted-foreground));
-            font-weight: 500;
-            line-height: 1.2;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            margin-top: 2px;
         }
         
         .section {
@@ -223,54 +216,62 @@
             font-size: 0.875rem;
         }
         
-        .checkbox-list {
+        .select-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 12px;
+        }
+
+        .select-group {
             display: flex;
             flex-direction: column;
             gap: 8px;
-            max-height: 200px;
-            overflow-y: auto;
         }
-        
-        .checkbox-item {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px;
+
+        .select-group label {
+            font-size: 13px;
+            font-weight: 600;
+            color: hsl(var(--foreground));
+        }
+
+        .page-select {
+            width: 100%;
+            border: 1px solid hsl(var(--border));
             border-radius: calc(var(--radius) - 2px);
-            transition: background-color 0.2s;
+            background: hsl(var(--background));
+            color: hsl(var(--foreground));
+            padding: 10px 12px;
+            font-family: inherit;
+            font-size: 13px;
         }
-        
-        .checkbox-item:hover {
-            background-color: hsl(var(--muted));
+
+        .page-select:focus {
+            outline: none;
+            border-color: hsl(var(--primary));
+            box-shadow: 0 0 0 2px hsl(var(--primary) / 0.1);
         }
-        
-        .checkbox-item input[type="checkbox"] {
-            width: 16px;
-            height: 16px;
-            cursor: pointer;
-        }
-        
-        .checkbox-item label {
-            cursor: pointer;
-            font-size: 14px;
-            flex: 1;
+
+        .select-helper {
+            margin-top: 10px;
+            font-size: 11px;
+            color: hsl(var(--muted-foreground));
         }
         
         .progress-section {
             padding: 16px 20px;
             background-color: hsl(var(--muted));
         }
-        
+
         .progress-bar {
             width: 100%;
-            height: 32px;
+            height: 20px;
             background-color: hsl(var(--background));
-            border-radius: var(--radius);
+            border-radius: 999px;
             overflow: hidden;
             margin-bottom: 12px;
             position: relative;
         }
-        
+
         .progress-fill {
             height: 100%;
             background-color: hsl(var(--primary));
@@ -279,21 +280,21 @@
             align-items: center;
             justify-content: center;
             color: hsl(var(--primary-foreground));
-            font-weight: 700;
-            font-size: 12px;
+            font-weight: 600;
+            font-size: 11px;
         }
-        
+
         .status-text {
             font-size: 13px;
             color: hsl(var(--muted-foreground));
             margin-bottom: 4px;
         }
-        
+
         .time-estimate {
             font-size: 12px;
             color: hsl(var(--muted-foreground));
         }
-        
+
         .logs-container {
             max-height: 200px;
             overflow-y: auto;
@@ -357,74 +358,13 @@
             background-color: hsl(0 84.2% 50.2%);
         }
 
-        .dataset-progress-section {
-            padding: 16px 20px;
-            border-bottom: 1px solid hsl(var(--border));
-        }
-
-        .dataset-progress-list {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-
-        .dataset-progress-item {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-        }
-
-        .dataset-progress-row {
-            display: flex;
-            flex-direction: column;
-            gap: 2px;
-            font-size: 13px;
-            font-weight: 600;
-            color: hsl(var(--foreground));
-        }
-
-        @media (min-width: 420px) {
-            .dataset-progress-row {
-                flex-direction: row;
-                align-items: baseline;
-                gap: 8px;
-            }
-
-            .dataset-progress-meta {
-                margin-left: auto;
-                text-align: right;
-            }
-        }
-
-        .dataset-progress-meta {
-            font-size: 12px;
-            color: hsl(var(--muted-foreground));
-            font-weight: 500;
-            line-height: 1.4;
-            word-break: break-word;
-        }
-
-        .dataset-progress-bar {
-            width: 100%;
-            height: 6px;
-            background: hsl(var(--muted));
-            border-radius: 999px;
-            overflow: hidden;
-        }
-
-        .dataset-progress-bar-fill {
-            height: 100%;
-            background: hsl(var(--primary));
-            transition: width 0.2s ease;
-        }
     </style>
 </head>
 <body>
     <!-- Header -->
     <div class="header">
         <div class="logo-container">
-            <span class="logo-icon">(a)</span>
-            <span class="logo-version" data-version>v0.0.0</span>
+            <span class="logo-icon">sisia</span>
         </div>
         <div id="session-info" class="session-info hidden">
             <span class="session-label">AISIS Cookie</span>
@@ -450,40 +390,27 @@
     <!-- Pages Selection -->
     <div class="section">
         <div class="section-title">Select Pages to Scrape</div>
-        <div class="checkbox-list">
-            <div class="checkbox-item">
-                <input type="checkbox" id="schedule" value="scheduleOfClasses">
-                <label for="schedule">Schedule of Classes</label>
+        <div class="select-grid">
+            <div class="select-group">
+                <label for="academic-pages">Academic Records</label>
+                <select id="academic-pages" class="page-select" multiple size="4">
+                    <option value="scheduleOfClasses">Schedule of Classes</option>
+                    <option value="officialCurriculum">Official Curriculum</option>
+                    <option value="viewGrades">View Grades</option>
+                    <option value="advisoryGrades">Advisory Grades</option>
+                </select>
             </div>
-            <div class="checkbox-item">
-                <input type="checkbox" id="curriculum" value="officialCurriculum">
-                <label for="curriculum">Official Curriculum</label>
-            </div>
-            <div class="checkbox-item">
-                <input type="checkbox" id="grades" value="viewGrades">
-                <label for="grades">View Grades</label>
-            </div>
-            <div class="checkbox-item">
-                <input type="checkbox" id="advisory" value="advisoryGrades">
-                <label for="advisory">Advisory Grades</label>
-            </div>
-            <div class="checkbox-item">
-                <input type="checkbox" id="enrolled" value="currentlyEnrolled">
-                <label for="enrolled">Currently Enrolled Classes</label>
-            </div>
-            <div class="checkbox-item">
-                <input type="checkbox" id="class-schedule" value="myClassSchedule">
-                <label for="class-schedule">My Class Schedule</label>
-            </div>
-            <div class="checkbox-item">
-                <input type="checkbox" id="tuition" value="tuitionReceipt">
-                <label for="tuition">Tuition Receipt</label>
-            </div>
-            <div class="checkbox-item">
-                <input type="checkbox" id="student-info" value="studentInfo">
-                <label for="student-info">Student Information</label>
+            <div class="select-group">
+                <label for="student-pages">Student &amp; Account</label>
+                <select id="student-pages" class="page-select" multiple size="4">
+                    <option value="currentlyEnrolled">Currently Enrolled Classes</option>
+                    <option value="myClassSchedule">My Class Schedule</option>
+                    <option value="tuitionReceipt">Tuition Receipt</option>
+                    <option value="studentInfo">Student Information</option>
+                </select>
             </div>
         </div>
+        <div class="select-helper">Use Ctrl/Cmd or Shift to select multiple pages.</div>
     </div>
     
     <!-- Scraping Controls -->
@@ -501,11 +428,6 @@
         </div>
         <div id="status-text" class="status-text">Initializing...</div>
         <div id="time-estimate" class="time-estimate"></div>
-    </div>
-
-    <div id="dataset-progress-section" class="dataset-progress-section hidden">
-        <div class="section-title">Dataset Progress</div>
-        <div id="dataset-progress-list" class="dataset-progress-list"></div>
     </div>
 
     <!-- Logs Section -->

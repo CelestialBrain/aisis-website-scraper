@@ -21,7 +21,7 @@ const MAX_HAR_ENTRIES = 200;
 const MAX_HAR_BODY_LENGTH = 200_000; // Limit HAR bodies to ~200 KB to avoid excessive storage use
 const MAX_HTML_SNAPSHOTS = 20;
 const MAX_HTML_SNAPSHOT_SIZE = 250_000; // Limit HTML snapshots to ~250 KB each
-const POPUP_DIMENSIONS = Object.freeze({ width: 420, height: 700 });
+const POPUP_DIMENSIONS = Object.freeze({ width: 520, height: 760 });
 
 const NAVIGATION_PATTERNS = [
   /home\s*:\s*sign\s*out/i,
