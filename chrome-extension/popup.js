@@ -56,16 +56,15 @@ document.addEventListener('DOMContentLoaded', async function() {
     const viewDataBtn = document.getElementById('view-data');
     const stopScrapingLogsBtn = document.getElementById('stop-scraping-logs');
     const resumeScrapingLogsBtn = document.getElementById('resume-scraping-logs');
-    const datasetProgressSection = document.getElementById('dataset-progress-section');
-    const datasetProgressList = document.getElementById('dataset-progress-list');
     const sessionInfo = document.getElementById('session-info');
     const sessionIdSpan = document.getElementById('session-id');
+    const pageSelects = Array.from(document.querySelectorAll('.page-select'));
 
     const formatCookieDisplay = (value) => {
         if (!value) {
             return '';
         }
-        return value.length > 24 ? `${value.slice(0, 12)}…${value.slice(-6)}` : value;
+        return value.length > 32 ? `${value.slice(0, 16)}…${value.slice(-8)}` : value;
     };
 
     let currentWindowId = null;
@@ -195,14 +194,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         }
 
         // Get selected pages
-        const checkboxes = document.querySelectorAll('.checkbox-item input[type="checkbox"]');
-        const selectedPages = {};
-        let hasSelection = false;
-
-        checkboxes.forEach(cb => {
-            selectedPages[cb.value] = cb.checked;
-            if (cb.checked) hasSelection = true;
-        });
+        const { selectedPages, hasSelection } = collectSelectedPages();
 
         if (!hasSelection) {
             alert('Please select at least one page to scrape');
@@ -467,7 +459,6 @@ document.addEventListener('DOMContentLoaded', async function() {
             }
         }
 
-        renderDatasetProgress(state.datasetProgress || {});
     }
     
     async function loadCredentials() {
@@ -811,29 +802,51 @@ document.addEventListener('DOMContentLoaded', async function() {
         return Math.min(100, Math.max(0, Math.round(numeric)));
     }
 
+    function collectSelectedPages() {
+        const selectedPages = {};
+        let hasSelection = false;
+
+        if (!pageSelects.length) {
+            return { selectedPages, hasSelection };
+        }
+
+        pageSelects.forEach((select) => {
+            Array.from(select.options).forEach((option) => {
+                const isSelected = Boolean(option.selected);
+                selectedPages[option.value] = isSelected;
+                if (isSelected) {
+                    hasSelection = true;
+                }
+            });
+        });
+
+        return { selectedPages, hasSelection };
+    }
+
     function restoreSelectedPages(selectedPages = null) {
-        const checkboxes = document.querySelectorAll('.checkbox-item input[type="checkbox"]');
-        if (!checkboxes.length) {
+        if (!pageSelects.length) {
             return;
         }
 
         const selection = selectedPages && typeof selectedPages === 'object' ? selectedPages : null;
 
-        let anyChecked = false;
-        checkboxes.forEach(cb => {
-            const shouldCheck = selection && Object.prototype.hasOwnProperty.call(selection, cb.value)
-                ? Boolean(selection[cb.value])
-                : false;
-            cb.checked = shouldCheck;
-            if (shouldCheck) {
-                anyChecked = true;
-            }
+        let anySelected = false;
+        pageSelects.forEach((select) => {
+            Array.from(select.options).forEach((option) => {
+                const shouldSelect = selection && Object.prototype.hasOwnProperty.call(selection, option.value)
+                    ? Boolean(selection[option.value])
+                    : false;
+                option.selected = shouldSelect;
+                if (shouldSelect) {
+                    anySelected = true;
+                }
+            });
         });
 
-        if (!anyChecked) {
-            const defaultCheckbox = document.querySelector('input[value="scheduleOfClasses"]');
-            if (defaultCheckbox) {
-                defaultCheckbox.checked = true;
+        if (!anySelected) {
+            const defaultOption = document.querySelector('.page-select option[value="scheduleOfClasses"]');
+            if (defaultOption) {
+                defaultOption.selected = true;
             }
         }
     }
@@ -891,57 +904,6 @@ document.addEventListener('DOMContentLoaded', async function() {
                 resumeScrapingLogsBtn.classList.add('hidden');
             }
         }
-    }
-
-    function renderDatasetProgress(progressMap = {}) {
-        if (!datasetProgressSection || !datasetProgressList) {
-            return;
-        }
-
-        const entries = Object.entries(progressMap).filter(([, info]) => info && typeof info === 'object');
-
-        if (!entries.length) {
-            datasetProgressList.innerHTML = '';
-            datasetProgressSection.classList.add('hidden');
-            return;
-        }
-
-        entries.sort(([keyA, a], [keyB, b]) => {
-            const labelA = (a.label || formatDatasetLabel(keyA) || '').toString().toLowerCase();
-            const labelB = (b.label || formatDatasetLabel(keyB) || '').toString().toLowerCase();
-            return labelA.localeCompare(labelB);
-        });
-
-        const markup = entries.map(([key, info]) => {
-            const label = info.label || formatDatasetLabel(key);
-            const total = Number.isFinite(info.total) ? info.total : 0;
-            const completed = Number.isFinite(info.completed) ? info.completed : 0;
-            const percent = total > 0
-                ? Math.min(100, Math.max(0, Math.round((completed / total) * 100)))
-                : (completed > 0 ? 100 : 0);
-            const items = Number.isFinite(info.items) && info.items > 0 ? `${info.items.toLocaleString()} items` : null;
-            const steps = total > 0 ? `${completed}/${total} steps` : null;
-            const detail = info.detail ? info.detail : null;
-            const metaParts = [items, steps, detail].filter(Boolean);
-            const updated = info.updatedAt ? new Date(info.updatedAt).toLocaleTimeString() : '';
-            const fallbackMeta = `${percent}%${updated ? ` · ${updated}` : ''}`;
-            const meta = metaParts.length ? metaParts.join(' • ') : fallbackMeta;
-
-            return `
-                <div class="dataset-progress-item">
-                    <div class="dataset-progress-row">
-                        <span class="dataset-progress-label">${escapeHtml(label)}</span>
-                        <span class="dataset-progress-meta">${escapeHtml(meta)}</span>
-                    </div>
-                    <div class="dataset-progress-bar">
-                        <div class="dataset-progress-bar-fill" style="width: ${percent}%;"></div>
-                    </div>
-                </div>
-            `;
-        }).join('');
-
-        datasetProgressList.innerHTML = markup;
-        datasetProgressSection.classList.remove('hidden');
     }
 
     function escapeHtml(value) {
