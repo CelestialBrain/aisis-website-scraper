@@ -826,7 +826,7 @@ function renderLogs(logs, trimmed) {
     }
 
     const LOG_DISPLAY_LIMIT = 200;
-    const recentLogs = logs.slice(-LOG_DISPLAY_LIMIT).reverse();
+    const recentLogs = logs.slice(-LOG_DISPLAY_LIMIT);
     feed.innerHTML = recentLogs.map(renderLogItem).join('');
     feed.classList.remove('hidden');
 
@@ -850,7 +850,7 @@ function renderErrors(errors) {
         return;
     }
 
-    const recentErrors = errors.slice(-5).reverse();
+    const recentErrors = errors.slice(-5);
     container.innerHTML = recentErrors.map(error => `
         <li class="error-item">
             <span class="error-step">${escapeHtml(error.step || 'Unknown')}</span>
