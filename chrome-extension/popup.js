@@ -450,30 +450,235 @@ document.addEventListener('DOMContentLoaded', async function() {
         });
     }
     
+    const DATASET_EXPORT_ORDER = [
+        'scheduleOfClasses',
+        'officialCurriculum',
+        'grades',
+        'advisoryGrades',
+        'enrolledClasses',
+        'classSchedule',
+        'tuitionReceipt',
+        'studentInfo',
+        'programOfStudy',
+        'holdOrders',
+        'facultyAttendance'
+    ];
+
+    const DATASET_COLUMN_CONFIG = {
+        scheduleOfClasses: [
+            'department',
+            'subjectCode',
+            'section',
+            'courseTitle',
+            'units',
+            'time',
+            'room',
+            'instructor',
+            'maxNo',
+            'lang',
+            'level',
+            'freeSlots',
+            'remarks',
+            's',
+            'p'
+        ],
+        officialCurriculum: [
+            'degreeProgram',
+            'degreeCode',
+            'catNo',
+            'courseTitle',
+            'units',
+            'prerequisites',
+            'category'
+        ],
+        grades: [
+            'schoolYear',
+            'semester',
+            'program',
+            'courseCode',
+            'courseTitle',
+            'units',
+            'grade'
+        ]
+    };
+
     function convertToCSV(data) {
-        let csv = '';
-        
-        // Schedule of Classes
-        if (data.scheduleOfClasses && data.scheduleOfClasses.length > 0) {
-            csv += 'SCHEDULE OF CLASSES\n';
-            csv += 'Department,Subject Code,Section,Course Title,Units,Time,Room,Instructor,Max No,Lang,Level,Free Slots,Remarks,S,P\n';
-            data.scheduleOfClasses.forEach(item => {
-                csv += `"${item.department || ''}","${item.subjectCode || ''}","${item.section || ''}","${item.courseTitle || ''}","${item.units || ''}","${item.time || ''}","${item.room || ''}","${item.instructor || ''}","${item.maxNo || ''}","${item.lang || ''}","${item.level || ''}","${item.freeSlots || ''}","${item.remarks || ''}","${item.s || ''}","${item.p || ''}"\n`;
-            });
-            csv += '\n';
-        }
-        
-        // Official Curriculum
-        if (data.officialCurriculum && data.officialCurriculum.length > 0) {
-            csv += 'OFFICIAL CURRICULUM\n';
-            csv += 'Degree Program,Degree Code,Cat No,Course Title,Units,Prerequisites,Category\n';
-            data.officialCurriculum.forEach(item => {
-                csv += `"${item.degreeProgram || ''}","${item.degreeCode || ''}","${item.catNo || ''}","${item.courseTitle || ''}","${item.units || ''}","${item.prerequisites || ''}","${item.category || ''}"\n`;
-            });
-            csv += '\n';
+        if (!data || typeof data !== 'object') {
+            return 'No data available';
         }
 
-        return csv || 'No data available';
+        const sections = [];
+        const handledKeys = new Set();
+
+        const orderedKeys = DATASET_EXPORT_ORDER.filter(key => data[key] !== undefined);
+        const remainingKeys = Object.keys(data).filter(key => !handledKeys.has(key) && !orderedKeys.includes(key));
+
+        [...orderedKeys, ...remainingKeys].forEach(key => {
+            handledKeys.add(key);
+            const dataset = data[key];
+            if (!dataset) {
+                return;
+            }
+
+            const label = formatDatasetLabel(key);
+
+            if (Array.isArray(dataset)) {
+                const section = convertArrayDatasetToSection(label, dataset, DATASET_COLUMN_CONFIG[key]);
+                if (section) {
+                    sections.push(section);
+                }
+            } else if (dataset && typeof dataset === 'object') {
+                const tableSections = convertTableDatasetToSections(label, dataset);
+                sections.push(...tableSections);
+            }
+        });
+
+        return sections.length > 0 ? sections.join('\n') : 'No data available';
+    }
+
+    function formatDatasetLabel(key) {
+        if (DATASET_LABELS[key]) {
+            return DATASET_LABELS[key];
+        }
+        return key
+            .replace(/([A-Z])/g, ' $1')
+            .replace(/_/g, ' ')
+            .replace(/^./, chr => chr.toUpperCase())
+            .trim();
+    }
+
+    function convertArrayDatasetToSection(label, items, configuredColumns) {
+        if (!Array.isArray(items) || items.length === 0) {
+            return null;
+        }
+
+        const columns = getColumnsForItems(items, configuredColumns);
+        if (!columns.length) {
+            return null;
+        }
+
+        const headerLine = columns.map(col => escapeForCSV(formatColumnLabel(col))).join(',');
+        const dataLines = items.map(item => {
+            return columns
+                .map(column => escapeForCSV(item?.[column]))
+                .join(',');
+        });
+
+        return [label.toUpperCase(), headerLine, ...dataLines, ''].join('\n');
+    }
+
+    function convertTableDatasetToSections(label, dataset) {
+        const sections = [];
+        if (dataset.capturedAt) {
+            sections.push(createMetadataSection(label, dataset.capturedAt));
+        }
+
+        if (Array.isArray(dataset.tables) && dataset.tables.length > 0) {
+            dataset.tables.forEach((table, index) => {
+                const headers = (table.headers && table.headers.length > 0)
+                    ? table.headers
+                    : deriveHeadersFromRows(table.rows);
+
+                const rows = Array.isArray(table.rows) ? table.rows : [];
+                if (!headers.length && rows.length === 0) {
+                    return;
+                }
+
+                const sectionTitle = table.caption
+                    ? `${label} - ${table.caption}`
+                    : `${label}${dataset.tables.length > 1 ? ` (Table ${index + 1})` : ''}`;
+
+                const headerLine = headers.map(header => escapeForCSV(header)).join(',');
+                const dataLines = rows.map(row => {
+                    const normalizedRow = Array.isArray(row) ? row : [];
+                    return headers
+                        .map((_, columnIndex) => escapeForCSV(normalizedRow[columnIndex]))
+                        .join(',');
+                });
+
+                sections.push([sectionTitle.toUpperCase(), headerLine, ...dataLines, ''].join('\n'));
+            });
+        } else if (dataset.text) {
+            sections.push([
+                `${label.toUpperCase()} TEXT SNAPSHOT`,
+                'Value',
+                escapeForCSV(dataset.text),
+                ''
+            ].join('\n'));
+        }
+
+        return sections;
+    }
+
+    function createMetadataSection(label, capturedAt) {
+        return [
+            `${label.toUpperCase()} METADATA`,
+            'Field,Value',
+            `${escapeForCSV('Captured At')},${escapeForCSV(capturedAt)}`,
+            ''
+        ].join('\n');
+    }
+
+    function getColumnsForItems(items, configuredColumns) {
+        if (configuredColumns && configuredColumns.length > 0) {
+            return configuredColumns;
+        }
+
+        const columnSet = new Set();
+        items.forEach(item => {
+            if (item && typeof item === 'object') {
+                Object.keys(item).forEach(key => columnSet.add(key));
+            }
+        });
+
+        return Array.from(columnSet);
+    }
+
+    function deriveHeadersFromRows(rows) {
+        if (!Array.isArray(rows)) {
+            return [];
+        }
+        let maxColumns = 0;
+        rows.forEach(row => {
+            if (Array.isArray(row)) {
+                maxColumns = Math.max(maxColumns, row.length);
+            }
+        });
+        return Array.from({ length: maxColumns }, (_, index) => `Column ${index + 1}`);
+    }
+
+    function escapeForCSV(value) {
+        if (value === null || value === undefined) {
+            return '""';
+        }
+
+        let stringValue;
+        if (typeof value === 'string') {
+            stringValue = value;
+        } else if (typeof value === 'number' || typeof value === 'boolean') {
+            stringValue = String(value);
+        } else {
+            try {
+                stringValue = JSON.stringify(value);
+            } catch (error) {
+                stringValue = String(value);
+            }
+        }
+
+        stringValue = stringValue.replace(/"/g, '""');
+        return `"${stringValue}"`;
+    }
+
+    function formatColumnLabel(columnKey) {
+        if (!columnKey) {
+            return '';
+        }
+
+        return columnKey
+            .replace(/([A-Z])/g, ' $1')
+            .replace(/_/g, ' ')
+            .replace(/^./, chr => chr.toUpperCase())
+            .trim();
     }
 
     function renderLogEntry(log) {
