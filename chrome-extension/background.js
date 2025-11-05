@@ -2,7 +2,7 @@
 // This version includes comprehensive debugging and HAR file generation
 
 const LOG_HISTORY_LIMIT = 500;
-const DEFAULT_FETCH_TIMEOUT_MS = 90000;
+const DEFAULT_FETCH_TIMEOUT_MS = 90_000; // 90s timeout to tolerate slow AISIS responses
 
 const DEFAULT_METRICS = {
   totalRequests: 0,
@@ -433,7 +433,11 @@ async function fetchWithHAR(url, options = {}) {
   } catch (error) {
     clearTimeout(timeoutId);
     if (error.name === 'AbortError') {
-      addLog(`⏱️ Request timeout after ${timeout/1000}s: ${url}`, 'error', { url, method, timeout });
+      addLog(
+        `⏱️ Request timeout after ${timeout / 1000}s: ${url}`,
+        'error',
+        { url, method, timeoutMs: timeout, timeoutSeconds: timeout / 1000 }
+      );
       recordRequestMetrics({
         url,
         method,
@@ -441,7 +445,7 @@ async function fetchWithHAR(url, options = {}) {
         responseTime: timeout,
         bytes: 0
       });
-      throw new Error(`Request timeout after ${timeout/1000}s`);
+      throw new Error(`Request timeout after ${timeout / 1000}s`);
     }
     addLog(`❌ Fetch error for ${url}: ${error.message}`, 'error', { url, method });
     recordRequestMetrics({
