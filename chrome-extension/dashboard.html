@@ -582,9 +582,6 @@
         <button class="tab" data-tab="enrollment">Enrollment</button>
         <button class="tab" data-tab="student">Student Info</button>
         <button class="tab" data-tab="program">Program of Study</button>
-        <button class="tab" data-tab="tuition">Tuition</button>
-        <button class="tab" data-tab="hold">Hold Orders</button>
-        <button class="tab" data-tab="faculty">Faculty</button>
         <button class="tab" data-tab="logs">Logs</button>
     </div>
 
@@ -653,15 +650,6 @@
                 <div class="stat-label">Bandwidth Used</div>
                 <div class="stat-value" id="metric-bytes">0 B</div>
                 <div class="stat-description" id="metric-last-status">--</div>
-            </div>
-        </div>
-
-        <div class="section-title">Dataset Progress</div>
-        <div id="dataset-progress-overview" class="dataset-progress-grid">
-            <div class="empty-state" id="dataset-progress-empty">
-                <div class="empty-state-icon">📡</div>
-                <div class="empty-state-title">No Active Runs</div>
-                <div class="empty-state-description">Start the scraper to watch dataset progress updates in real-time.</div>
             </div>
         </div>
 
@@ -859,42 +847,6 @@
                 <div class="empty-state-icon">🎓</div>
                 <div class="empty-state-title">No Program Data</div>
                 <div class="empty-state-description">Run the scraper to view your program of study</div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Tuition Tab -->
-    <div id="tuition-tab" class="tab-content">
-        <div class="section-title">Tuition Receipt</div>
-        <div id="tuition-tables" class="generic-table-list">
-            <div class="empty-state" id="tuition-empty">
-                <div class="empty-state-icon">💳</div>
-                <div class="empty-state-title">No Tuition Data</div>
-                <div class="empty-state-description">Scrape the Tuition Receipt page to populate this table.</div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Hold Orders Tab -->
-    <div id="hold-tab" class="tab-content">
-        <div class="section-title">Hold Orders</div>
-        <div id="hold-tables" class="generic-table-list">
-            <div class="empty-state" id="hold-empty">
-                <div class="empty-state-icon">⛔</div>
-                <div class="empty-state-title">No Hold Orders</div>
-                <div class="empty-state-description">Scrape the Hold Orders page to view holds here.</div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Faculty Tab -->
-    <div id="faculty-tab" class="tab-content">
-        <div class="section-title">Faculty Attendance</div>
-        <div id="faculty-tables" class="generic-table-list">
-            <div class="empty-state" id="faculty-empty">
-                <div class="empty-state-icon">🎓</div>
-                <div class="empty-state-title">No Faculty Records</div>
-                <div class="empty-state-description">Scrape the Faculty Attendance page to populate this table.</div>
             </div>
         </div>
     </div>

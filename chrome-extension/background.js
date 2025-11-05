@@ -3,24 +3,6 @@
 
 const LOG_HISTORY_LIMIT = 500;
 const DEFAULT_FETCH_TIMEOUT_MS = 90_000; // 90s timeout to tolerate slow AISIS responses
-const MAX_HAR_ENTRIES = 350;
-const MAX_HAR_BODY_LENGTH = 20_000;
-const MAX_HTML_SNAPSHOTS = 12;
-const MAX_HTML_SNAPSHOT_SIZE = 20_000;
-
-const DATASET_LABELS = {
-  officialCurriculum: 'Curriculum',
-  scheduleOfClasses: 'Schedule of Classes',
-  grades: 'View Grades',
-  advisoryGrades: 'Advisory Grades',
-  enrolledClasses: 'Currently Enrolled',
-  classSchedule: 'My Class Schedule',
-  tuitionReceipt: 'Tuition Receipt',
-  studentInfo: 'Student Information',
-  programOfStudy: 'Program of Study',
-  holdOrders: 'Hold Orders',
-  facultyAttendance: 'Faculty Attendance'
-};
 
 const DEFAULT_METRICS = {
   totalRequests: 0,
@@ -49,12 +31,10 @@ function createInitialState(overrides = {}) {
     startTime: null,
     logs: [],
     scrapedData: {},
-    datasetProgress: {},
     errors: [],
     debugMode: false,
     harEntries: [],
     htmlSnapshots: {},
-    htmlSnapshotOrder: [],
     metrics: { ...DEFAULT_METRICS },
     logsTrimmed: false,
     lastUpdated: null,
@@ -63,11 +43,7 @@ function createInitialState(overrides = {}) {
     lastLogAt: null,
     selectedPages: null,
     ...overrides,
-    metrics: { ...DEFAULT_METRICS, ...(overrides.metrics || {}) },
-    datasetProgress: { ...(overrides.datasetProgress || {}) },
-    htmlSnapshotOrder: Array.isArray(overrides.htmlSnapshotOrder)
-      ? overrides.htmlSnapshotOrder.slice(-MAX_HTML_SNAPSHOTS)
-      : []
+    metrics: { ...DEFAULT_METRICS, ...(overrides.metrics || {}) }
   };
 }
 
@@ -201,9 +177,6 @@ chrome.storage.local.get('scrapingState', (result) => {
       errors: Array.isArray(result.scrapingState.errors) ? result.scrapingState.errors : [],
       harEntries: Array.isArray(result.scrapingState.harEntries) ? result.scrapingState.harEntries : [],
       htmlSnapshots: result.scrapingState.htmlSnapshots || {},
-      htmlSnapshotOrder: Array.isArray(result.scrapingState.htmlSnapshotOrder)
-        ? result.scrapingState.htmlSnapshotOrder.slice(-MAX_HTML_SNAPSHOTS)
-        : [],
       logsTrimmed:
         Array.isArray(result.scrapingState.logs) && result.scrapingState.logs.length > LOG_HISTORY_LIMIT
           ? true
@@ -216,33 +189,7 @@ chrome.storage.local.get('scrapingState', (result) => {
 // Persist state to storage
 function persistState() {
   scrapingState.lastUpdated = new Date().toISOString();
-  const stateToSave = {
-    ...scrapingState,
-    logs: Array.isArray(scrapingState.logs)
-      ? scrapingState.logs.slice(-LOG_HISTORY_LIMIT)
-      : [],
-    harEntries: Array.isArray(scrapingState.harEntries)
-      ? scrapingState.harEntries.slice(-MAX_HAR_ENTRIES)
-      : [],
-    htmlSnapshotOrder: Array.isArray(scrapingState.htmlSnapshotOrder)
-      ? scrapingState.htmlSnapshotOrder.slice(-MAX_HTML_SNAPSHOTS)
-      : [],
-    metrics: { ...scrapingState.metrics },
-    datasetProgress: { ...(scrapingState.datasetProgress || {}) }
-  };
-
-  const snapshotOrder = stateToSave.htmlSnapshotOrder;
-  const trimmedSnapshots = {};
-  if (Array.isArray(snapshotOrder)) {
-    snapshotOrder.forEach(key => {
-      if (scrapingState.htmlSnapshots && scrapingState.htmlSnapshots[key]) {
-        trimmedSnapshots[key] = scrapingState.htmlSnapshots[key];
-      }
-    });
-  }
-  stateToSave.htmlSnapshots = trimmedSnapshots;
-
-  chrome.storage.local.set({ scrapingState: stateToSave });
+  chrome.storage.local.set({ scrapingState: scrapingState });
 }
 
 // Utility: Add log entry
@@ -320,9 +267,9 @@ function addHAREntry(
   responseBody,
   timing
 ) {
-  const entry = {
-    startedDateTime: new Date().toISOString(),
-    time: timing || 0,
+    const entry = {
+      startedDateTime: new Date().toISOString(),
+      time: timing || 0,
     request: {
       method: method,
       url: url,
@@ -885,7 +832,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     scrapingState.logs = [];
     scrapingState.harEntries = [];
     scrapingState.htmlSnapshots = {};
-    scrapingState.htmlSnapshotOrder = [];
     scrapingState.logsTrimmed = false;
     scrapingState.lastLogAt = null;
     persistState();
@@ -934,16 +880,16 @@ async function startScraping(options) {
     errors: [],
     harEntries: [],
     htmlSnapshots: {},
-    selectedPages: pages
+    selectedPages: options.pages
   });
 
   addLog('=== AISIS Scraping Started ===', 'info', { sessionId, step: 'bootstrap' });
   addLog(
-    `Selected pages: ${selectedPageKeys.map(formatDatasetLabel).join(', ') || 'none'}`,
+    `Selected pages: ${Object.keys(options.pages).filter(k => options.pages[k]).join(', ')}`,
     'info',
-    { step: 'bootstrap', pages }
+    { step: 'bootstrap', pages: options.pages }
   );
-
+  
   try {
     // Step 1: Login
     scrapingState.currentStep = 'Logging in...';
@@ -1231,13 +1177,6 @@ async function scrapeScheduleOfClasses() {
               department: dept,
               items: classCount
             });
-            updateDatasetProgress('scheduleOfClasses', {
-              completed: i + 1,
-              total: departments.length,
-              items: scrapingState.scrapedData.scheduleOfClasses.length,
-              detail: dept
-            });
-            updateProgress();
           } else {
             addLog(`No schedule table found for ${dept}`, 'warning', { step: 'scheduleOfClasses', department: dept });
           }
@@ -1272,12 +1211,6 @@ async function scrapeScheduleOfClasses() {
       step: 'scheduleOfClasses',
       total: scrapingState.scrapedData.scheduleOfClasses.length
     });
-    updateDatasetProgress('scheduleOfClasses', {
-      completed: departments.length,
-      total: departments.length,
-      items: scrapingState.scrapedData.scheduleOfClasses.length
-    });
-    updateProgress();
     scrapingState.completedSteps++;
     updateProgress();
 
@@ -1444,13 +1377,6 @@ async function scrapeOfficialCurriculum() {
               name: degree.name,
               items: courseCount
             });
-            updateDatasetProgress('officialCurriculum', {
-              completed: i + 1,
-              total: degreeCodes.length,
-              items: scrapingState.scrapedData.officialCurriculum.length,
-              detail: degree.name
-            });
-            updateProgress();
           } else {
             addLog(`No curriculum table found for ${degree.name}`, 'warning', {
               step: 'officialCurriculum',
@@ -1491,12 +1417,6 @@ async function scrapeOfficialCurriculum() {
       step: 'officialCurriculum',
       total: scrapingState.scrapedData.officialCurriculum.length
     });
-    updateDatasetProgress('officialCurriculum', {
-      completed: degreeCodes.length,
-      total: degreeCodes.length,
-      items: scrapingState.scrapedData.officialCurriculum.length
-    });
-    updateProgress();
     scrapingState.completedSteps++;
     updateProgress();
 
@@ -1546,16 +1466,8 @@ async function scrapeSimplePage(url, pageName, dataKey) {
       tables,
       capturedAt: new Date().toISOString()
     };
-
-    addLog(`${pageName} scraped successfully`, 'success', { step: dataKey, pageName, rows: totalRows });
-    const completedUnits = totalRows || tables.length;
-    updateDatasetProgress(dataKey, {
-      label: pageName,
-      completed: completedUnits,
-      total: completedUnits || 1,
-      items: totalRows
-    });
-    updateProgress();
+    
+    addLog(`${pageName} scraped successfully`, 'success', { step: dataKey, pageName });
     scrapingState.completedSteps++;
     updateProgress();
 
@@ -1608,11 +1520,6 @@ async function scrapeGrades() {
     
     scrapingState.scrapedData[dataKey] = grades;
     addLog(`Scraped ${grades.length} grade entries`, 'success', { step: dataKey, total: grades.length });
-    updateDatasetProgress('grades', {
-      completed: grades.length,
-      total: grades.length,
-      items: grades.length
-    });
     updateProgress();
   } catch (error) {
     addLog(`Error scraping grades: ${error.message}`, 'error', { step: dataKey, error: error.message });

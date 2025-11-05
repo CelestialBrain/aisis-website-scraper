@@ -35,31 +35,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     const viewDataBtn = document.getElementById('view-data');
     const stopScrapingLogsBtn = document.getElementById('stop-scraping-logs');
     const resumeScrapingLogsBtn = document.getElementById('resume-scraping-logs');
-    const datasetProgressSection = document.getElementById('dataset-progress-section');
-    const datasetProgressList = document.getElementById('dataset-progress-list');
-    const pinWindowBtn = document.getElementById('pin-window');
-
-    let isPinned = false;
-
-    if (pinWindowBtn) {
-        chrome.storage.local.get(['popupPinned'], (result) => {
-            if (typeof result.popupPinned === 'boolean') {
-                isPinned = result.popupPinned;
-                updatePinButton();
-                if (isPinned) {
-                    requestPinWindow(true);
-                }
-            }
-        });
-
-        pinWindowBtn.addEventListener('click', () => {
-            isPinned = !isPinned;
-            updatePinButton();
-            chrome.storage.local.set({ popupPinned: isPinned });
-            requestPinWindow(isPinned);
-        });
-    }
-
+    
     // Load saved credentials
     const credentials = await loadCredentials();
     if (credentials) {
@@ -506,77 +482,6 @@ document.addEventListener('DOMContentLoaded', async function() {
         return `<div class="log-entry log-${log.type}">[${time}] ${log.message}${context}</div>`;
     }
 
-    function renderDatasetProgress(progressMap = {}) {
-        if (!datasetProgressSection || !datasetProgressList) {
-            return;
-        }
-
-        const entries = Object.entries(progressMap).filter(([, value]) => value && typeof value === 'object');
-
-        if (!entries.length) {
-            datasetProgressList.innerHTML = '';
-            datasetProgressSection.classList.add('hidden');
-            return;
-        }
-
-        datasetProgressSection.classList.remove('hidden');
-
-        const items = entries
-            .sort((a, b) => {
-                const labelA = (a[1].label || formatDatasetLabel(a[0])).toLowerCase();
-                const labelB = (b[1].label || formatDatasetLabel(b[0])).toLowerCase();
-                return labelA.localeCompare(labelB);
-            })
-            .map(([key, value]) => {
-                const completed = Number(value.completed) || 0;
-                const total = Number(value.total) || 0;
-                const displayTotal = total || Math.max(completed, 1);
-                const percent = displayTotal > 0 ? Math.min(100, Math.round((completed / displayTotal) * 100)) : 0;
-                const itemsCount = Number(value.items) || 0;
-                const label = value.label || formatDatasetLabel(key);
-                const detail = value.detail ? escapeHtml(String(value.detail)) : '';
-                const metaParts = [];
-                if (itemsCount) {
-                    metaParts.push(`${itemsCount.toLocaleString()} items`);
-                }
-                if (value.updatedAt) {
-                    metaParts.push(`Updated ${escapeHtml(formatRelativeTime(value.updatedAt))}`);
-                }
-                const meta = metaParts.join(' • ');
-
-                return `
-                    <div class="dataset-progress-item">
-                        <div class="dataset-progress-header">
-                            <span>${escapeHtml(label)}</span>
-                            <span>${completed.toLocaleString()}/${displayTotal.toLocaleString()}</span>
-                        </div>
-                        <div class="dataset-progress-bar">
-                            <div class="dataset-progress-fill" style="width: ${percent}%;"></div>
-                        </div>
-                        <div class="dataset-progress-meta">${meta || 'No metrics yet'}</div>
-                        ${detail ? `<div class="dataset-progress-meta">${detail}</div>` : ''}
-                    </div>
-                `;
-            })
-            .join('');
-
-        datasetProgressList.innerHTML = items;
-    }
-
-    function formatDatasetLabel(key) {
-        if (!key) {
-            return 'Dataset';
-        }
-        if (DATASET_LABELS[key]) {
-            return DATASET_LABELS[key];
-        }
-        return key
-            .replace(/([A-Z])/g, ' $1')
-            .replace(/_/g, ' ')
-            .replace(/^./, chr => chr.toUpperCase())
-            .trim();
-    }
-
     function formatLogContextHTML(context = {}) {
         if (!context || typeof context !== 'object') {
             return '';
@@ -615,41 +520,5 @@ document.addEventListener('DOMContentLoaded', async function() {
         } catch (error) {
             return String(value);
         }
-    }
-
-    function escapeHtml(value) {
-        if (value === null || value === undefined) {
-            return '';
-        }
-        return String(value)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;');
-    }
-
-    function formatRelativeTime(isoString) {
-        if (!isoString) {
-            return '—';
-        }
-        const date = new Date(isoString);
-        if (Number.isNaN(date.getTime())) {
-            return '—';
-        }
-        const diffMs = Date.now() - date.getTime();
-        if (diffMs < 60_000) {
-            return 'just now';
-        }
-        const diffMinutes = Math.floor(diffMs / 60_000);
-        if (diffMinutes < 60) {
-            return `${diffMinutes}m ago`;
-        }
-        const diffHours = Math.floor(diffMinutes / 60);
-        if (diffHours < 24) {
-            return `${diffHours}h ago`;
-        }
-        const diffDays = Math.floor(diffHours / 24);
-        return `${diffDays}d ago`;
     }
 });
