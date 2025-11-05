@@ -82,6 +82,47 @@
             display: flex;
             gap: 8px;
         }
+
+        .download-menu {
+            position: relative;
+        }
+
+        .download-menu.open > .btn {
+            background: hsl(var(--secondary));
+        }
+
+        .download-menu-panel {
+            position: absolute;
+            top: calc(100% + 8px);
+            right: 0;
+            background: white;
+            border: 1px solid hsl(var(--border));
+            border-radius: 8px;
+            box-shadow: 0 12px 24px rgba(15, 23, 42, 0.12);
+            display: flex;
+            flex-direction: column;
+            min-width: 220px;
+            z-index: 20;
+        }
+
+        .download-menu-panel.hidden {
+            display: none;
+        }
+
+        .download-menu-item {
+            padding: 10px 16px;
+            background: transparent;
+            border: none;
+            text-align: left;
+            font-size: 13px;
+            color: hsl(var(--foreground));
+            cursor: pointer;
+            transition: background 0.15s ease;
+        }
+
+        .download-menu-item:hover {
+            background: hsl(var(--secondary));
+        }
         
         .btn {
             padding: 6px 12px;
@@ -216,6 +257,7 @@
             border-radius: 8px;
             background: white;
             margin-bottom: 16px;
+            max-height: 360px;
         }
 
         .table-wrapper table {
@@ -361,7 +403,8 @@
             max-width: 200px;
             overflow: hidden;
             text-overflow: ellipsis;
-            white-space: nowrap;
+            white-space: normal;
+            word-break: break-word;
         }
         
         .data-table tr:hover {
@@ -567,6 +610,16 @@
         </div>
         <div class="header-actions">
             <button id="refresh-btn" class="btn btn-outline">🔄 Refresh Data</button>
+            <div class="download-menu" id="download-menu">
+                <button id="download-btn" class="btn btn-outline">⬇️ Downloads</button>
+                <div id="download-menu-panel" class="download-menu-panel hidden" role="menu">
+                    <button class="download-menu-item" data-download="json">📁 Export JSON</button>
+                    <button class="download-menu-item" data-download="csv">📄 Export CSV</button>
+                    <button class="download-menu-item" data-download="logs">🧾 Download Logs</button>
+                    <button class="download-menu-item" data-download="har">📦 Export HAR</button>
+                    <button class="download-menu-item" data-download="html">🗂️ HTML Snapshots</button>
+                </div>
+            </div>
             <button id="scraper-btn" class="btn btn-primary">⚙️ Scraper</button>
         </div>
     </div>

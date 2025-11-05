@@ -46,6 +46,8 @@ function createInitialState(overrides = {}) {
     currentPage: '',
     totalSteps: 0,
     completedSteps: 0,
+    activeDataset: null,
+    substepProgress: 0,
     startTime: null,
     logs: [],
     scrapedData: {},
@@ -68,6 +70,7 @@ function createInitialState(overrides = {}) {
 
 // Global state
 let scrapingState = createInitialState();
+let popupWindowId = null;
 
 // Generate session ID
 function generateSessionId() {
@@ -210,6 +213,90 @@ function persistState() {
   scrapingState.lastUpdated = new Date().toISOString();
   chrome.storage.local.set({ scrapingState: scrapingState });
 }
+
+function handleOpenScraperPopup(sendResponse) {
+  const popupUrl = chrome.runtime.getURL('popup.html');
+
+  const finalizeResponse = (payload) => {
+    try {
+      sendResponse(payload);
+    } catch (error) {
+      console.warn('Failed to respond to popup request:', error);
+    }
+  };
+
+  const createWindow = (shouldPin) => {
+    chrome.windows.create(
+      {
+        url: popupUrl,
+        type: 'popup',
+        width: 420,
+        height: 700,
+        focused: true
+      },
+      (newWindow) => {
+        if (chrome.runtime.lastError || !newWindow) {
+          finalizeResponse({
+            success: false,
+            error: chrome.runtime.lastError?.message || 'Unable to open scraper popup'
+          });
+          return;
+        }
+
+        popupWindowId = newWindow.id;
+
+        if (shouldPin) {
+          chrome.windows.update(newWindow.id, { setAlwaysOnTop: true }, () => {
+            if (chrome.runtime.lastError) {
+              console.warn('Pinning popup failed:', chrome.runtime.lastError.message);
+            }
+            finalizeResponse({ success: true, created: true, windowId: newWindow.id });
+          });
+          return;
+        }
+
+        finalizeResponse({ success: true, created: true, windowId: newWindow.id });
+      }
+    );
+  };
+
+  const focusExisting = (windowId, shouldPin) => {
+    const updateOptions = shouldPin ? { focused: true, setAlwaysOnTop: true } : { focused: true };
+    chrome.windows.update(windowId, updateOptions, () => {
+      if (chrome.runtime.lastError) {
+        console.warn('Failed to focus popup window:', chrome.runtime.lastError.message);
+        popupWindowId = null;
+        createWindow(shouldPin);
+        return;
+      }
+      finalizeResponse({ success: true, created: false, windowId });
+    });
+  };
+
+  chrome.storage.local.get(['popupPinned'], (result) => {
+    const shouldPin = Boolean(result.popupPinned);
+
+    if (popupWindowId) {
+      chrome.windows.get(popupWindowId, { populate: false }, (existingWindow) => {
+        if (chrome.runtime.lastError || !existingWindow) {
+          popupWindowId = null;
+          createWindow(shouldPin);
+          return;
+        }
+        focusExisting(existingWindow.id, shouldPin);
+      });
+      return;
+    }
+
+    createWindow(shouldPin);
+  });
+}
+
+chrome.windows.onRemoved.addListener((removedWindowId) => {
+  if (popupWindowId === removedWindowId) {
+    popupWindowId = null;
+  }
+});
 
 // Utility: Add log entry
 function addLog(message, type = 'info', context = {}) {
@@ -787,7 +874,28 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     sendResponse({ state: scrapingState });
     return true;
   }
-  
+
+  if (request.action === 'openScraperPopup') {
+    handleOpenScraperPopup(sendResponse);
+    return true;
+  }
+
+  if (request.action === 'registerPopupWindow') {
+    if (typeof request.windowId === 'number') {
+      popupWindowId = request.windowId;
+    }
+    sendResponse({ success: true });
+    return false;
+  }
+
+  if (request.action === 'unregisterPopupWindow') {
+    if (typeof request.windowId === 'number' && popupWindowId === request.windowId) {
+      popupWindowId = null;
+    }
+    sendResponse({ success: true });
+    return false;
+  }
+
   if (request.action === 'stopScraping') {
     if (!scrapingState.isPaused) {
       scrapingState.isRunning = false;
@@ -803,7 +911,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     scrapingState.isRunning = false;
     scrapingState.isPaused = false;
     scrapingState.isCompleted = true;
+    scrapingState.activeDataset = null;
+    scrapingState.substepProgress = 0;
     addLog('Scraping terminated - cannot resume', 'error');
+    updateProgress();
     sendResponse({ success: true, terminated: true });
     return true;
   }
@@ -883,6 +994,7 @@ async function startScraping(options) {
 
   const pages = normalizePageSelection((options && options.pages) || {});
   const selectedPageKeys = Object.keys(pages).filter(key => pages[key]);
+  const totalSteps = Math.max(1, selectedPageKeys.length + 1);
 
   // Reset state
   scrapingState = createInitialState({
@@ -891,8 +1003,10 @@ async function startScraping(options) {
     progress: 0,
     currentStep: 'Initializing...',
     currentPage: 'initializing',
-    totalSteps: 0,
+    totalSteps: totalSteps,
     completedSteps: 0,
+    activeDataset: null,
+    substepProgress: 0,
     startTime: Date.now(),
     startedAt: new Date().toISOString(),
     scrapedData: {},
@@ -901,6 +1015,8 @@ async function startScraping(options) {
     htmlSnapshots: {},
     selectedPages: options.pages
   });
+
+  updateProgress();
 
   addLog('=== AISIS Scraping Started ===', 'info', { sessionId, step: 'bootstrap' });
   addLog(
@@ -923,11 +1039,9 @@ async function startScraping(options) {
       throw new Error('Login failed. Please check your credentials.');
     }
     
+    scrapingState.substepProgress = 0;
     scrapingState.completedSteps++;
     updateProgress();
-    
-    // Calculate total steps
-    scrapingState.totalSteps = selectedPageKeys.length + 1; // +1 for login
 
     // Step 2: Scrape selected pages
     if (pages.scheduleOfClasses) {
@@ -979,6 +1093,8 @@ async function startScraping(options) {
     scrapingState.isCompleted = true;
     scrapingState.isPaused = false;
     scrapingState.progress = 100;
+    scrapingState.activeDataset = null;
+    scrapingState.substepProgress = 0;
     scrapingState.currentStep = 'Scraping complete!';
     scrapingState.completedAt = new Date().toISOString();
     addLog('=== Scraping Completed Successfully ===', 'success', { sessionId, step: 'complete' });
@@ -1008,10 +1124,22 @@ async function startScraping(options) {
 
 // Update progress percentage
 function updateProgress() {
-  if (scrapingState.totalSteps > 0) {
-    scrapingState.progress = Math.round((scrapingState.completedSteps / scrapingState.totalSteps) * 100);
+  const totalSteps = scrapingState.totalSteps || 0;
+  if (totalSteps > 0) {
+    const clampedSubstep = Math.min(Math.max(scrapingState.substepProgress || 0, 0), 0.999);
+    const effectiveCompleted = Math.min(
+      scrapingState.completedSteps + clampedSubstep,
+      totalSteps
+    );
+    let computed = Math.round((effectiveCompleted / totalSteps) * 100);
+    if (scrapingState.isCompleted || scrapingState.completedSteps >= totalSteps) {
+      computed = 100;
+    }
+    scrapingState.progress = Math.min(Math.max(computed, 0), 100);
+  } else {
+    scrapingState.progress = 0;
   }
-  
+
   // Send update to popup
   chrome.runtime.sendMessage({
     action: 'updateProgress',
@@ -1078,8 +1206,12 @@ async function scrapeScheduleOfClasses() {
     
     addLog(`Using period: ${applicablePeriod}`, 'info', { step: 'scheduleOfClasses', period: applicablePeriod });
     
+
     // Step 2: Scrape each department
     scrapingState.scrapedData.scheduleOfClasses = [];
+    scrapingState.activeDataset = 'scheduleOfClasses';
+    scrapingState.substepProgress = 0;
+    const totalDepartments = Math.max(departments.length, 1);
     updateDatasetProgress('scheduleOfClasses', {
       label: formatDatasetLabel('scheduleOfClasses'),
       completed: 0,
@@ -1087,7 +1219,7 @@ async function scrapeScheduleOfClasses() {
       items: 0
     });
     updateProgress();
-    
+
     for (let i = 0; i < departments.length; i++) {
       if (!scrapingState.isRunning) {
         addLog('Scraping stopped by user', 'warning', { step: 'scheduleOfClasses' });
@@ -1102,72 +1234,69 @@ async function scrapeScheduleOfClasses() {
         index: i + 1,
         total: departments.length
       });
-      
+
+      let detailLabel = dept;
+
       try {
         const formData = new URLSearchParams();
         formData.append('applicablePeriod', applicablePeriod);
         formData.append('command', 'displayResults');
         formData.append('deptCode', dept);
         formData.append('subjCode', 'ALL');
-        
+
         const response = await fetchWithHAR('https://aisis.ateneo.edu/j_aisis/J_VCSC.do', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.9',
-          'Origin': 'https://aisis.ateneo.edu',
-          'Referer': 'https://aisis.ateneo.edu/j_aisis/J_VCSC.do',
-          'Connection': 'keep-alive'
-        },
-        body: formData,
-        credentials: 'include'
-      });
-      
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Origin': 'https://aisis.ateneo.edu',
+            'Referer': 'https://aisis.ateneo.edu/j_aisis/J_VCSC.do',
+            'Connection': 'keep-alive'
+          },
+          body: formData,
+          credentials: 'include'
+        });
+
         if (response.ok) {
           const html = await response.text();
           saveHTMLSnapshot(`schedule_${dept}`, html);
-          const scheduleDoc = parseHTML(html);
-          
-          // Parse the schedule table - find the correct table by looking for "Subject Code" header
+
           const tableRegex = /<table[^>]*>([\s\S]*?)<\/table>/gi;
           let tableMatch;
           let dataTable = null;
-          
+
           while ((tableMatch = tableRegex.exec(html)) !== null) {
             const tableHTML = tableMatch[0];
-            // Check if this table contains "Subject Code" header
             if (/Subject Code/i.test(tableHTML)) {
               dataTable = tableHTML;
               break;
             }
           }
-          
+
           if (dataTable) {
-            // Extract rows from the data table
             const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
             let rowMatch;
             let classCount = 0;
             let isFirstRow = true;
-            
+
             while ((rowMatch = rowRegex.exec(dataTable)) !== null) {
               if (isFirstRow) {
                 isFirstRow = false;
-                continue; // Skip header row
+                continue;
               }
-              
+
               const rowHTML = rowMatch[1];
               const cellRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi;
               const cells = [];
               let cellMatch;
-              
+
               while ((cellMatch = cellRegex.exec(rowHTML)) !== null) {
                 const cellContent = cellMatch[1].replace(/<[^>]*>/g, '').trim();
                 cells.push(cellContent);
               }
-              
-              // Expected columns: Subject Code, Section, Course Title, Units, Time, Room, Instructor, Max No, Lang, Level, Free Slots, Remarks, S, P
+
               if (cells.length >= 7) {
                 const classData = {
                   department: dept,
@@ -1190,14 +1319,18 @@ async function scrapeScheduleOfClasses() {
                 classCount++;
               }
             }
-            
+
             addLog(`Scraped ${classCount} classes from ${dept}`, 'success', {
               step: 'scheduleOfClasses',
               department: dept,
               items: classCount
             });
+            if (classCount === 0) {
+              detailLabel = `${dept} (no data)`;
+            }
           } else {
             addLog(`No schedule table found for ${dept}`, 'warning', { step: 'scheduleOfClasses', department: dept });
+            detailLabel = `${dept} (no data)`;
           }
         } else {
           addLog(`Failed to fetch ${dept}: ${response.status}`, 'error', {
@@ -1205,37 +1338,54 @@ async function scrapeScheduleOfClasses() {
             department: dept,
             status: response.status
           });
+          detailLabel = `${dept} (failed)`;
         }
       } catch (deptError) {
+        detailLabel = `${dept} (error)`;
         addLog(`Error processing ${dept}: ${deptError.message}`, 'error', {
           step: 'scheduleOfClasses',
           department: dept,
           error: deptError.message
         });
         scrapingState.errors.push({ step: `schedule_${dept}`, error: deptError.message });
-        updateDatasetProgress('scheduleOfClasses', {
-          completed: i + 1,
-          total: departments.length,
-          items: scrapingState.scrapedData.scheduleOfClasses.length,
-          detail: `${dept} (error)`
-        });
+      }
+
+      const completedCount = i + 1;
+      updateDatasetProgress('scheduleOfClasses', {
+        label: formatDatasetLabel('scheduleOfClasses'),
+        completed: completedCount,
+        total: departments.length,
+        items: scrapingState.scrapedData.scheduleOfClasses.length,
+        detail: detailLabel
+      });
+      scrapingState.substepProgress = Math.min(completedCount / totalDepartments, 0.999);
+
+      if (completedCount < departments.length) {
         updateProgress();
       }
-      
+
+      if (!scrapingState.isRunning) {
+        break;
+      }
+
       // Rate limiting: wait 2-4 seconds between requests to avoid throttling
       await delay(2000 + Math.random() * 2000);
     }
-    
+
     addLog(`Total classes scraped: ${scrapingState.scrapedData.scheduleOfClasses.length}`, 'success', {
       step: 'scheduleOfClasses',
       total: scrapingState.scrapedData.scheduleOfClasses.length
     });
+    scrapingState.activeDataset = null;
+    scrapingState.substepProgress = 0;
     scrapingState.completedSteps++;
     updateProgress();
-
   } catch (error) {
     addLog(`Error scraping schedule: ${error.message}`, 'error', { step: 'scheduleOfClasses', error: error.message });
     scrapingState.errors.push({ step: 'scheduleOfClasses', error: error.message });
+    scrapingState.activeDataset = null;
+    scrapingState.substepProgress = 0;
+    updateProgress();
   }
 }
 
@@ -1285,6 +1435,9 @@ async function scrapeOfficialCurriculum() {
     
     // Step 2: Scrape each degree program
     scrapingState.scrapedData.officialCurriculum = [];
+    scrapingState.activeDataset = 'officialCurriculum';
+    scrapingState.substepProgress = 0;
+    const totalPrograms = Math.max(degreeCodes.length, 1);
     updateDatasetProgress('officialCurriculum', {
       label: formatDatasetLabel('officialCurriculum'),
       completed: 0,
@@ -1292,7 +1445,7 @@ async function scrapeOfficialCurriculum() {
       items: 0
     });
     updateProgress();
-    
+
     for (let i = 0; i < degreeCodes.length; i++) {
       if (!scrapingState.isRunning) {
         addLog('Scraping stopped by user', 'warning', { step: 'officialCurriculum' });
@@ -1308,10 +1461,10 @@ async function scrapeOfficialCurriculum() {
         index: i + 1,
         total: degreeCodes.length
       });
-      
+
       const formData = new URLSearchParams();
       formData.append('degCode', degree.code);
-      
+
       const response = await fetchWithHAR('https://aisis.ateneo.edu/j_aisis/J_VOFC.do', {
         method: 'POST',
         headers: {
@@ -1326,52 +1479,50 @@ async function scrapeOfficialCurriculum() {
         body: formData,
         credentials: 'include'
       });
-      
+
+      let detailLabel = degree.name;
+
       try {
         if (response.ok) {
           const html = await response.text();
           if (scrapingState.debugMode || i < 5) {
             saveHTMLSnapshot(`curriculum_${degree.code}`, html);
           }
-          
-          // Parse the curriculum table - find tables with "Course Title" header
+
           const tableRegex = /<table[^>]*>([\s\S]*?)<\/table>/gi;
           let tableMatch;
           let courseCount = 0;
-          
+
           while ((tableMatch = tableRegex.exec(html)) !== null) {
             const tableHTML = tableMatch[0];
-            
-            // Check if this table contains "Course Title"
+
             if (/Course Title/i.test(tableHTML)) {
-              // Extract rows from this table
               const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
               let rowMatch;
               let isHeaderRow = true;
-              let columnHeaderRow = true; // The first data row is actually column headers
-              
+              let columnHeaderRow = true;
+
               while ((rowMatch = rowRegex.exec(tableHTML)) !== null) {
                 if (isHeaderRow) {
                   isHeaderRow = false;
-                  continue; // Skip the semester header row
+                  continue;
                 }
-                
+
                 if (columnHeaderRow) {
                   columnHeaderRow = false;
-                  continue; // Skip the column header row (Cat No, Course Title, etc.)
+                  continue;
                 }
-                
+
                 const rowHTML = rowMatch[1];
                 const cellRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi;
                 const cells = [];
                 let cellMatch;
-                
+
                 while ((cellMatch = cellRegex.exec(rowHTML)) !== null) {
                   const cellContent = cellMatch[1].replace(/<[^>]*>/g, '').trim();
                   cells.push(cellContent);
                 }
-                
-                // Expected columns: Cat No, Course Title, Units, Prerequisites, Category
+
                 if (cells.length >= 2) {
                   const courseData = {
                     degreeProgram: degree.name,
@@ -1388,7 +1539,7 @@ async function scrapeOfficialCurriculum() {
               }
             }
           }
-          
+
           if (courseCount > 0) {
             addLog(`Scraped ${courseCount} courses from ${degree.name}`, 'success', {
               step: 'officialCurriculum',
@@ -1402,6 +1553,7 @@ async function scrapeOfficialCurriculum() {
               degree: degree.code,
               name: degree.name
             });
+            detailLabel = `${degree.name} (no data)`;
           }
         } else {
           addLog(`Failed to fetch ${degree.name}: ${response.status}`, 'error', {
@@ -1410,8 +1562,10 @@ async function scrapeOfficialCurriculum() {
             name: degree.name,
             status: response.status
           });
+          detailLabel = `${degree.name} (failed)`;
         }
       } catch (degError) {
+        detailLabel = `${degree.name} (error)`;
         addLog(`Error processing ${degree.name}: ${degError.message}`, 'error', {
           step: 'officialCurriculum',
           degree: degree.code,
@@ -1419,29 +1573,44 @@ async function scrapeOfficialCurriculum() {
           error: degError.message
         });
         scrapingState.errors.push({ step: `curriculum_${degree.code}`, error: degError.message });
-        updateDatasetProgress('officialCurriculum', {
-          completed: i + 1,
-          total: degreeCodes.length,
-          items: scrapingState.scrapedData.officialCurriculum.length,
-          detail: `${degree.name} (error)`
-        });
+      }
+
+      const completedCount = i + 1;
+      updateDatasetProgress('officialCurriculum', {
+        label: formatDatasetLabel('officialCurriculum'),
+        completed: completedCount,
+        total: degreeCodes.length,
+        items: scrapingState.scrapedData.officialCurriculum.length,
+        detail: detailLabel
+      });
+      scrapingState.substepProgress = Math.min(completedCount / totalPrograms, 0.999);
+
+      if (completedCount < degreeCodes.length) {
         updateProgress();
       }
-      
+
+      if (!scrapingState.isRunning) {
+        break;
+      }
+
       // Rate limiting: wait 2-4 seconds between requests to avoid throttling
       await delay(2000 + Math.random() * 2000);
     }
-    
+
     addLog(`Total courses scraped: ${scrapingState.scrapedData.officialCurriculum.length}`, 'success', {
       step: 'officialCurriculum',
       total: scrapingState.scrapedData.officialCurriculum.length
     });
+    scrapingState.activeDataset = null;
+    scrapingState.substepProgress = 0;
     scrapingState.completedSteps++;
     updateProgress();
-
   } catch (error) {
     addLog(`Error scraping curriculum: ${error.message}`, 'error', { step: 'officialCurriculum', error: error.message });
     scrapingState.errors.push({ step: 'officialCurriculum', error: error.message });
+    scrapingState.activeDataset = null;
+    scrapingState.substepProgress = 0;
+    updateProgress();
   }
 }
 
@@ -1450,6 +1619,16 @@ async function scrapeSimplePage(url, pageName, dataKey) {
   scrapingState.currentPage = dataKey;
   scrapingState.currentStep = `Scraping ${pageName}...`;
   addLog(`Starting ${pageName} scrape`, 'info', { step: dataKey, pageName, url });
+
+  scrapingState.activeDataset = dataKey;
+  scrapingState.substepProgress = 0;
+  updateDatasetProgress(dataKey, {
+    label: pageName,
+    completed: 0,
+    total: 1,
+    items: 0
+  });
+  updateProgress();
   
   try {
     const response = await fetchWithHAR(url, { 
@@ -1485,8 +1664,17 @@ async function scrapeSimplePage(url, pageName, dataKey) {
       tables,
       capturedAt: new Date().toISOString()
     };
-    
+
+    updateDatasetProgress(dataKey, {
+      label: pageName,
+      completed: 1,
+      total: 1,
+      items: totalRows,
+      detail: totalRows > 0 ? `${totalRows} rows` : 'No rows detected'
+    });
     addLog(`${pageName} scraped successfully`, 'success', { step: dataKey, pageName });
+    scrapingState.activeDataset = null;
+    scrapingState.substepProgress = 0;
     scrapingState.completedSteps++;
     updateProgress();
 
@@ -1495,6 +1683,8 @@ async function scrapeSimplePage(url, pageName, dataKey) {
   } catch (error) {
     addLog(`Error scraping ${pageName}: ${error.message}`, 'error', { step: dataKey, pageName, error: error.message });
     scrapingState.errors.push({ step: dataKey, error: error.message });
+    scrapingState.activeDataset = null;
+    scrapingState.substepProgress = 0;
     updateDatasetProgress(dataKey, {
       label: pageName,
       completed: 0,
@@ -1511,7 +1701,17 @@ async function scrapeGrades() {
   const dataKey = 'grades';
   scrapingState.currentPage = dataKey;
   addLog('Fetching grades page...', 'info', { step: dataKey });
-  
+
+  scrapingState.activeDataset = dataKey;
+  scrapingState.substepProgress = 0;
+  updateDatasetProgress(dataKey, {
+    label: formatDatasetLabel(dataKey),
+    completed: 0,
+    total: 1,
+    items: 0
+  });
+  updateProgress();
+
   try {
     const response = await fetchWithHAR('https://aisis.ateneo.edu/j_aisis/J_VG.do');
     const html = await response.text();
@@ -1536,13 +1736,33 @@ async function scrapeGrades() {
         });
       }
     });
-    
+
     scrapingState.scrapedData[dataKey] = grades;
+    updateDatasetProgress(dataKey, {
+      label: formatDatasetLabel(dataKey),
+      completed: 1,
+      total: 1,
+      items: grades.length,
+      detail: grades.length > 0 ? `${grades.length} entries` : 'No entries detected'
+    });
     addLog(`Scraped ${grades.length} grade entries`, 'success', { step: dataKey, total: grades.length });
+    scrapingState.activeDataset = null;
+    scrapingState.substepProgress = 0;
+    scrapingState.completedSteps++;
     updateProgress();
   } catch (error) {
     addLog(`Error scraping grades: ${error.message}`, 'error', { step: dataKey, error: error.message });
     scrapingState.errors.push({ step: dataKey, error: error.message });
+    scrapingState.activeDataset = null;
+    scrapingState.substepProgress = 0;
+    updateDatasetProgress(dataKey, {
+      label: formatDatasetLabel(dataKey),
+      completed: 0,
+      total: 1,
+      items: 0,
+      detail: `Error: ${error.message}`
+    });
+    updateProgress();
   }
 }
 

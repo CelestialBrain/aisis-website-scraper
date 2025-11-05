@@ -40,6 +40,24 @@ document.addEventListener('DOMContentLoaded', async function() {
     const pinWindowBtn = document.getElementById('pin-window');
 
     let isPinned = false;
+    let currentWindowId = null;
+
+    if (typeof chrome !== 'undefined' && chrome.windows && chrome.windows.getCurrent) {
+        chrome.windows.getCurrent((windowInfo) => {
+            if (windowInfo && typeof windowInfo.id === 'number') {
+                currentWindowId = windowInfo.id;
+                if (chrome.runtime && chrome.runtime.sendMessage) {
+                    chrome.runtime.sendMessage({ action: 'registerPopupWindow', windowId: currentWindowId });
+                }
+            }
+        });
+    }
+
+    window.addEventListener('unload', () => {
+        if (currentWindowId !== null && chrome?.runtime?.sendMessage) {
+            chrome.runtime.sendMessage({ action: 'unregisterPopupWindow', windowId: currentWindowId });
+        }
+    });
     
     // Load saved credentials
     const credentials = await loadCredentials();
@@ -96,6 +114,7 @@ document.addEventListener('DOMContentLoaded', async function() {
             if (typeof result.popupPinned === 'boolean') {
                 isPinned = result.popupPinned;
                 updatePinButton();
+                requestPinWindow(isPinned);
             }
         });
 

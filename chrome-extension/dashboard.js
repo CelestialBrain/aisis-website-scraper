@@ -33,10 +33,44 @@ function getChromeApi() {
     return typeof chrome !== 'undefined' ? chrome : null;
 }
 
+const extensionApi = getChromeApi();
+
+function sendRuntimeMessage(message) {
+    return new Promise((resolve, reject) => {
+        if (!extensionApi?.runtime?.sendMessage) {
+            resolve(null);
+            return;
+        }
+
+        try {
+            extensionApi.runtime.sendMessage(message, (response) => {
+                const runtimeError = extensionApi.runtime.lastError;
+                if (runtimeError) {
+                    reject(new Error(runtimeError.message));
+                    return;
+                }
+                resolve(response);
+            });
+        } catch (error) {
+            reject(error);
+        }
+    });
+}
+
 // Open scraper popup
-document.getElementById('scraper-btn').addEventListener('click', () => {
-    const extensionApi = getChromeApi();
+document.getElementById('scraper-btn').addEventListener('click', async () => {
     const popupUrl = extensionApi?.runtime?.getURL ? extensionApi.runtime.getURL('popup.html') : 'popup.html';
+
+    if (extensionApi?.runtime?.sendMessage) {
+        try {
+            const response = await sendRuntimeMessage({ action: 'openScraperPopup' });
+            if (response?.success) {
+                return;
+            }
+        } catch (error) {
+            console.warn('Fallback to manual popup open due to error:', error);
+        }
+    }
 
     if (extensionApi?.windows?.create) {
         extensionApi.windows.create({
@@ -61,18 +95,124 @@ document.getElementById('refresh-btn').addEventListener('click', async () => {
     await loadDashboardData();
 });
 
+const downloadMenu = document.getElementById('download-menu');
+const downloadMenuPanel = document.getElementById('download-menu-panel');
+const downloadBtn = document.getElementById('download-btn');
+const downloadActions = document.querySelectorAll('[data-download]');
+let isDownloadMenuOpen = false;
+
+function toggleDownloadMenu(forceOpen) {
+    const shouldOpen = typeof forceOpen === 'boolean' ? forceOpen : !isDownloadMenuOpen;
+    isDownloadMenuOpen = shouldOpen;
+    if (downloadMenuPanel) {
+        downloadMenuPanel.classList.toggle('hidden', !shouldOpen);
+    }
+    if (downloadMenu) {
+        downloadMenu.classList.toggle('open', shouldOpen);
+    }
+}
+
+function closeDownloadMenu() {
+    if (isDownloadMenuOpen) {
+        toggleDownloadMenu(false);
+    }
+}
+
+downloadBtn?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    toggleDownloadMenu();
+});
+
+downloadActions.forEach((button) => {
+    button.addEventListener('click', async (event) => {
+        const action = button.dataset.download;
+        closeDownloadMenu();
+        if (action) {
+            await handleDownloadAction(action);
+        }
+    });
+});
+
+document.addEventListener('click', (event) => {
+    if (!isDownloadMenuOpen) {
+        return;
+    }
+    if (downloadMenu && !downloadMenu.contains(event.target)) {
+        closeDownloadMenu();
+    }
+});
+
 // Load dashboard data from storage
 let latestState = null;
 
+function isPlainObject(value) {
+    return Object.prototype.toString.call(value) === '[object Object]';
+}
+
+function sanitizeSimpleDataset(dataset) {
+    if (!dataset || !isPlainObject(dataset)) {
+        return null;
+    }
+    return dataset;
+}
+
+function deriveClassSchedule(dataset) {
+    if (Array.isArray(dataset)) {
+        return dataset;
+    }
+
+    const structured = sanitizeSimpleDataset(dataset);
+    if (!structured) {
+        return [];
+    }
+
+    const tables = Array.isArray(structured.tables) ? structured.tables : [];
+    if (!tables.length) {
+        return [];
+    }
+
+    const targetTable = tables.find((table) => {
+        const headers = Array.isArray(table.headers) ? table.headers.map(header => header.toLowerCase()) : [];
+        return headers.some((header) => header.includes('course') || header.includes('schedule'));
+    }) || tables[0];
+
+    const headers = Array.isArray(targetTable.headers) ? targetTable.headers.map(header => header.toLowerCase()) : [];
+    const rows = Array.isArray(targetTable.rows) ? targetTable.rows : [];
+
+    const findIndex = (keywords) => headers.findIndex((header) => keywords.some(keyword => header.includes(keyword)));
+    const courseIndex = findIndex(['course', 'subject']);
+    const sectionIndex = findIndex(['section']);
+    const scheduleIndex = findIndex(['schedule', 'time']);
+    const roomIndex = findIndex(['room', 'venue']);
+    const instructorIndex = findIndex(['instructor', 'faculty']);
+
+    const readCell = (row, index) => {
+        if (!Array.isArray(row) || index < 0 || index >= row.length) {
+            return '';
+        }
+        const value = row[index];
+        return typeof value === 'string' ? value : String(value ?? '');
+    };
+
+    return rows.map((row) => ({
+        courseCode: readCell(row, courseIndex) || '--',
+        section: readCell(row, sectionIndex) || '--',
+        schedule: readCell(row, scheduleIndex) || '--',
+        room: readCell(row, roomIndex) || '--',
+        instructor: readCell(row, instructorIndex) || '--'
+    })).filter((entry) => Object.values(entry).some(value => value && value !== '--'));
+}
+
 async function loadDashboardData() {
     try {
-        const extensionApi = getChromeApi();
         if (!extensionApi?.storage?.local) {
             return;
         }
 
-        const result = await extensionApi.storage.local.get(['scrapingState']);
-        const state = result.scrapingState || {};
+        const result = await new Promise((resolve) => {
+            extensionApi.storage.local.get(['scrapingState'], resolve);
+        });
+        const state = result?.scrapingState || {};
         applyDashboardState(state);
     } catch (error) {
         console.error('Error loading dashboard data:', error);
@@ -81,7 +221,7 @@ async function loadDashboardData() {
 
 function applyDashboardState(state = {}) {
     latestState = state;
-    const data = state.scrapedData || {};
+    const data = isPlainObject(state.scrapedData) ? state.scrapedData : {};
 
     renderOperationalStatus(state);
     renderMetrics(state.metrics || {});
@@ -96,8 +236,8 @@ function applyDashboardState(state = {}) {
         ? data.schedule
         : deriveClassSchedule(data.classSchedule);
     loadSchedule(classScheduleRows);
-    renderScheduleOfClasses(data.scheduleOfClasses || []);
-    renderCurriculum(data.officialCurriculum || [], state.datasetProgress?.officialCurriculum);
+    renderScheduleOfClasses(Array.isArray(data.scheduleOfClasses) ? data.scheduleOfClasses : []);
+    renderCurriculum(Array.isArray(data.officialCurriculum) ? data.officialCurriculum : [], state.datasetProgress?.officialCurriculum);
 
     renderGenericTables(data.advisoryGrades, 'advisory-tables', {
         icon: '🗂️',
@@ -313,8 +453,6 @@ function loadProgramOfStudy(programData) {
 document.addEventListener('DOMContentLoaded', () => {
     loadDashboardData();
 });
-
-const extensionApi = getChromeApi();
 
 if (extensionApi?.storage?.onChanged) {
     extensionApi.storage.onChanged.addListener((changes, area) => {
@@ -793,9 +931,15 @@ function renderGenericTables(dataset, containerId, emptyConfig) {
         return;
     }
 
-    const tables = dataset && Array.isArray(dataset.tables) ? dataset.tables : [];
-    const text = dataset && typeof dataset.text === 'string' ? dataset.text.trim() : '';
-    const capturedAt = dataset && dataset.capturedAt;
+    const structured = sanitizeSimpleDataset(dataset);
+    if (!structured) {
+        container.innerHTML = buildEmptyState(emptyConfig);
+        return;
+    }
+
+    const tables = Array.isArray(structured.tables) ? structured.tables : [];
+    const text = typeof structured.text === 'string' ? structured.text.trim() : '';
+    const capturedAt = structured.capturedAt;
 
     if (!tables.length && !text) {
         container.innerHTML = buildEmptyState(emptyConfig);
@@ -1068,6 +1212,297 @@ function escapeHtml(value) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
+}
+
+const DATASET_EXPORT_ORDER = [
+    'scheduleOfClasses',
+    'officialCurriculum',
+    'grades',
+    'advisoryGrades',
+    'enrolledClasses',
+    'classSchedule',
+    'tuitionReceipt',
+    'studentInfo',
+    'programOfStudy',
+    'holdOrders',
+    'facultyAttendance'
+];
+
+const DATASET_COLUMN_CONFIG = {
+    scheduleOfClasses: [
+        { key: 'department' },
+        { key: 'subjectCode' },
+        { key: 'section' },
+        { key: 'courseTitle' },
+        { key: 'units' },
+        { key: 'time', label: 'Schedule' },
+        { key: 'room' },
+        { key: 'instructor' },
+        { key: 'maxNo', label: 'Max' },
+        { key: 'lang' },
+        { key: 'level' },
+        { key: 'freeSlots' },
+        { key: 'remarks' }
+    ],
+    officialCurriculum: [
+        'degreeProgram',
+        'degreeCode',
+        'catNo',
+        'courseTitle',
+        'units',
+        'prerequisites',
+        'category'
+    ],
+    grades: [
+        'schoolYear',
+        'semester',
+        'program',
+        'courseCode',
+        'courseTitle',
+        'units',
+        'grade'
+    ]
+};
+
+function formatDatasetLabel(key) {
+    if (DATASET_LABELS[key]) {
+        return DATASET_LABELS[key];
+    }
+    return key
+        .replace(/([A-Z])/g, ' $1')
+        .replace(/_/g, ' ')
+        .replace(/^./, chr => chr.toUpperCase())
+        .trim();
+}
+
+function convertToCSV(data) {
+    if (!data || typeof data !== 'object') {
+        return 'No data available';
+    }
+
+    const sections = [];
+    const handledKeys = new Set();
+
+    const orderedKeys = DATASET_EXPORT_ORDER.filter(key => data[key] !== undefined);
+    const remainingKeys = Object.keys(data).filter(key => !handledKeys.has(key) && !orderedKeys.includes(key));
+
+    [...orderedKeys, ...remainingKeys].forEach(key => {
+        handledKeys.add(key);
+        const dataset = data[key];
+        if (!dataset) {
+            return;
+        }
+
+        const label = formatDatasetLabel(key);
+
+        if (Array.isArray(dataset)) {
+            const section = convertArrayDatasetToSection(label, dataset, DATASET_COLUMN_CONFIG[key]);
+            if (section) {
+                sections.push(section);
+            }
+        } else if (isPlainObject(dataset)) {
+            const tableSections = convertTableDatasetToSections(label, dataset);
+            sections.push(...tableSections);
+        }
+    });
+
+    return sections.length > 0 ? sections.join('\n') : 'No data available';
+}
+
+function convertArrayDatasetToSection(label, items, configuredColumns) {
+    if (!Array.isArray(items) || items.length === 0) {
+        return null;
+    }
+
+    const columns = getColumnsForItems(items, configuredColumns);
+    if (!columns.length) {
+        return null;
+    }
+
+    const headerLine = columns.map(column => escapeForCSV(column.label)).join(',');
+    const dataLines = items.map(item => {
+        return columns
+            .map(column => escapeForCSV(item?.[column.key]))
+            .join(',');
+    });
+
+    return [label.toUpperCase(), headerLine, ...dataLines, ''].join('\n');
+}
+
+function convertTableDatasetToSections(label, dataset) {
+    const sections = [];
+    if (dataset.capturedAt) {
+        sections.push(createMetadataSection(label, dataset.capturedAt));
+    }
+
+    if (Array.isArray(dataset.tables) && dataset.tables.length > 0) {
+        dataset.tables.forEach((table, index) => {
+            const headers = (table.headers && table.headers.length > 0)
+                ? table.headers
+                : (Array.isArray(table.rows) && table.rows.length
+                    ? table.rows[0].map((_, idx) => `Column ${idx + 1}`)
+                    : []);
+            const rows = Array.isArray(table.rows) ? table.rows : [];
+            const headerLine = headers.map(escapeForCSV).join(',');
+            const rowLines = rows.map(row => row.map(cell => escapeForCSV(cell)).join(','));
+            sections.push([`${label.toUpperCase()} - TABLE ${index + 1}`, headerLine, ...rowLines, ''].join('\n'));
+        });
+    }
+
+    if (!dataset.tables?.length && dataset.text) {
+        sections.push(`${label.toUpperCase()}\n${escapeForCSV(dataset.text)}\n`);
+    }
+
+    return sections;
+}
+
+function getColumnsForItems(items, configuredColumns) {
+    if (Array.isArray(configuredColumns) && configuredColumns.length) {
+        return configuredColumns.map(column => (
+            typeof column === 'string'
+                ? { key: column, label: formatDatasetLabel(column) }
+                : { key: column.key, label: column.label || formatDatasetLabel(column.key) }
+        ));
+    }
+
+    const firstItem = items.find(item => item && typeof item === 'object');
+    if (!firstItem) {
+        return [];
+    }
+
+    return Object.keys(firstItem).map(key => ({ key, label: formatDatasetLabel(key) }));
+}
+
+function escapeForCSV(value) {
+    return escapeCsvValue(value ?? '');
+}
+
+function createMetadataSection(label, capturedAt) {
+    const lines = [`${label.toUpperCase()} - METADATA`];
+    if (capturedAt) {
+        lines.push(`Captured,${escapeForCSV(formatTimestamp(capturedAt))}`);
+    }
+    lines.push('');
+    return lines.join('\n');
+}
+
+function escapeCsvValue(value) {
+    const stringValue = typeof value === 'string' ? value : String(value ?? '');
+    if (stringValue.includes(',') || stringValue.includes('\n') || stringValue.includes('"')) {
+        return `"${stringValue.replace(/"/g, '""')}"`;
+    }
+    return stringValue;
+}
+
+function formatLogsForDownload(logs = []) {
+    if (!Array.isArray(logs) || logs.length === 0) {
+        return 'No logs available';
+    }
+    return logs
+        .map(log => {
+            const timestamp = log.timestamp || new Date().toISOString();
+            const type = (log.type || 'info').toUpperCase();
+            const context = log.context ? JSON.stringify(log.context) : '';
+            return `[${timestamp}] [${type}] ${log.message || ''} ${context}`.trim();
+        })
+        .join('\n');
+}
+
+function downloadFile(content, filename, mimeType) {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+
+    if (extensionApi?.downloads?.download) {
+        extensionApi.downloads.download({
+            url,
+            filename,
+            saveAs: false,
+            conflictAction: 'uniquify'
+        }, () => {
+            URL.revokeObjectURL(url);
+        });
+        return;
+    }
+
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.click();
+    URL.revokeObjectURL(url);
+}
+
+async function getLatestStateSnapshot() {
+    if (latestState) {
+        return latestState;
+    }
+    if (!extensionApi?.storage?.local) {
+        return {};
+    }
+    const result = await new Promise((resolve) => {
+        extensionApi.storage.local.get(['scrapingState'], resolve);
+    });
+    return result?.scrapingState || {};
+}
+
+async function downloadJsonData() {
+    const state = await getLatestStateSnapshot();
+    const jsonData = JSON.stringify(state.scrapedData || {}, null, 2);
+    downloadFile(jsonData, 'aisis_data.json', 'application/json');
+}
+
+async function downloadCsvData() {
+    const state = await getLatestStateSnapshot();
+    const csvData = convertToCSV(state.scrapedData || {});
+    downloadFile(csvData, 'aisis_data.csv', 'text/csv');
+}
+
+async function downloadLogsFile() {
+    const state = await getLatestStateSnapshot();
+    const logsText = formatLogsForDownload(state.logs || []);
+    downloadFile(logsText, 'aisis_scraper_logs.txt', 'text/plain');
+}
+
+async function downloadHarFile() {
+    try {
+        const response = await sendRuntimeMessage({ action: 'exportHAR' });
+        if (response?.success) {
+            const harData = JSON.stringify(response.har, null, 2);
+            downloadFile(harData, 'aisis_scraper.har', 'application/json');
+        }
+    } catch (error) {
+        console.error('Failed to export HAR:', error);
+    }
+}
+
+async function downloadHtmlSnapshots() {
+    try {
+        const response = await sendRuntimeMessage({ action: 'exportHTMLSnapshots' });
+        if (response?.success) {
+            const htmlData = JSON.stringify(response.snapshots, null, 2);
+            downloadFile(htmlData, 'aisis_html_snapshots.json', 'application/json');
+        }
+    } catch (error) {
+        console.error('Failed to export HTML snapshots:', error);
+    }
+}
+
+async function handleDownloadAction(action) {
+    const handlers = {
+        json: downloadJsonData,
+        csv: downloadCsvData,
+        logs: downloadLogsFile,
+        har: downloadHarFile,
+        html: downloadHtmlSnapshots
+    };
+
+    const handler = handlers[action];
+    if (handler) {
+        try {
+            await handler();
+        } catch (error) {
+            console.error(`Download action failed for ${action}:`, error);
+        }
+    }
 }
 
 function formatContextValue(value) {
