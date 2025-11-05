@@ -21,6 +21,7 @@ const MAX_HAR_ENTRIES = 200;
 const MAX_HAR_BODY_LENGTH = 200_000; // Limit HAR bodies to ~200 KB to avoid excessive storage use
 const MAX_HTML_SNAPSHOTS = 20;
 const MAX_HTML_SNAPSHOT_SIZE = 250_000; // Limit HTML snapshots to ~250 KB each
+const POPUP_DIMENSIONS = Object.freeze({ width: 420, height: 700 });
 
 const DEFAULT_METRICS = {
   totalRequests: 0,
@@ -63,6 +64,10 @@ function createInitialState(overrides = {}) {
     completedAt: null,
     lastLogAt: null,
     selectedPages: null,
+    checkpoints: {},
+    pageOrder: [],
+    currentDatasetIndex: 0,
+    pauseRequested: false,
     ...overrides,
     metrics: { ...DEFAULT_METRICS, ...(overrides.metrics || {}) }
   };
@@ -71,6 +76,7 @@ function createInitialState(overrides = {}) {
 // Global state
 let scrapingState = createInitialState();
 let popupWindowId = null;
+let enforcePopupBoundsTimer = null;
 
 // Generate session ID
 function generateSessionId() {
@@ -214,6 +220,85 @@ function persistState() {
   chrome.storage.local.set({ scrapingState: scrapingState });
 }
 
+function ensureCheckpointContainer() {
+  if (!scrapingState.checkpoints || typeof scrapingState.checkpoints !== 'object') {
+    scrapingState.checkpoints = {};
+  }
+}
+
+function setCheckpoint(datasetKey, data = {}) {
+  if (!datasetKey) {
+    return;
+  }
+  ensureCheckpointContainer();
+  scrapingState.checkpoints[datasetKey] = {
+    ...data,
+    recordedAt: new Date().toISOString()
+  };
+}
+
+function getCheckpoint(datasetKey) {
+  return scrapingState.checkpoints?.[datasetKey] || null;
+}
+
+function clearCheckpoint(datasetKey) {
+  if (!datasetKey || !scrapingState.checkpoints) {
+    return;
+  }
+  delete scrapingState.checkpoints[datasetKey];
+}
+
+function isPauseActive() {
+  return Boolean(scrapingState.pauseRequested || scrapingState.isPaused);
+}
+
+function enforcePopupBounds(windowId, immediate = false) {
+  if (!windowId) {
+    return;
+  }
+
+  const applyBounds = () => {
+    chrome.windows.get(windowId, { populate: false }, (win) => {
+      if (chrome.runtime.lastError || !win) {
+        return;
+      }
+
+      const desiredWidth = POPUP_DIMENSIONS.width;
+      const desiredHeight = POPUP_DIMENSIONS.height;
+
+      const needsUpdate =
+        win.state !== 'normal' ||
+        typeof win.width === 'number' && win.width !== desiredWidth ||
+        typeof win.height === 'number' && win.height !== desiredHeight;
+
+      if (!needsUpdate) {
+        return;
+      }
+
+      chrome.windows.update(windowId, {
+        width: desiredWidth,
+        height: desiredHeight,
+        state: 'normal'
+      }, () => {
+        if (chrome.runtime.lastError) {
+          console.warn('Failed to enforce popup bounds:', chrome.runtime.lastError.message);
+        }
+      });
+    });
+  };
+
+  if (immediate) {
+    applyBounds();
+    return;
+  }
+
+  if (enforcePopupBoundsTimer) {
+    clearTimeout(enforcePopupBoundsTimer);
+  }
+
+  enforcePopupBoundsTimer = setTimeout(applyBounds, 50);
+}
+
 function handleOpenScraperPopup(sendResponse) {
   const popupUrl = chrome.runtime.getURL('popup.html');
 
@@ -225,13 +310,13 @@ function handleOpenScraperPopup(sendResponse) {
     }
   };
 
-  const createWindow = (shouldPin) => {
+  const createWindow = () => {
     chrome.windows.create(
       {
         url: popupUrl,
         type: 'popup',
-        width: 420,
-        height: 700,
+        width: POPUP_DIMENSIONS.width,
+        height: POPUP_DIMENSIONS.height,
         focused: true
       },
       (newWindow) => {
@@ -244,57 +329,53 @@ function handleOpenScraperPopup(sendResponse) {
         }
 
         popupWindowId = newWindow.id;
-
-        if (shouldPin) {
-          chrome.windows.update(newWindow.id, { setAlwaysOnTop: true }, () => {
-            if (chrome.runtime.lastError) {
-              console.warn('Pinning popup failed:', chrome.runtime.lastError.message);
-            }
-            finalizeResponse({ success: true, created: true, windowId: newWindow.id });
-          });
-          return;
-        }
-
+        enforcePopupBounds(newWindow.id, true);
         finalizeResponse({ success: true, created: true, windowId: newWindow.id });
       }
     );
   };
 
-  const focusExisting = (windowId, shouldPin) => {
-    const updateOptions = shouldPin ? { focused: true, setAlwaysOnTop: true } : { focused: true };
-    chrome.windows.update(windowId, updateOptions, () => {
+  const focusExisting = (windowId) => {
+    chrome.windows.update(windowId, { focused: true, state: 'normal' }, () => {
       if (chrome.runtime.lastError) {
         console.warn('Failed to focus popup window:', chrome.runtime.lastError.message);
         popupWindowId = null;
-        createWindow(shouldPin);
+        createWindow();
         return;
       }
+      enforcePopupBounds(windowId);
       finalizeResponse({ success: true, created: false, windowId });
     });
   };
 
-  chrome.storage.local.get(['popupPinned'], (result) => {
-    const shouldPin = Boolean(result.popupPinned);
+  if (popupWindowId) {
+    chrome.windows.get(popupWindowId, { populate: false }, (existingWindow) => {
+      if (chrome.runtime.lastError || !existingWindow) {
+        popupWindowId = null;
+        createWindow();
+        return;
+      }
+      focusExisting(existingWindow.id);
+    });
+    return;
+  }
 
-    if (popupWindowId) {
-      chrome.windows.get(popupWindowId, { populate: false }, (existingWindow) => {
-        if (chrome.runtime.lastError || !existingWindow) {
-          popupWindowId = null;
-          createWindow(shouldPin);
-          return;
-        }
-        focusExisting(existingWindow.id, shouldPin);
-      });
-      return;
-    }
-
-    createWindow(shouldPin);
-  });
+  createWindow();
 }
 
 chrome.windows.onRemoved.addListener((removedWindowId) => {
   if (popupWindowId === removedWindowId) {
     popupWindowId = null;
+    if (enforcePopupBoundsTimer) {
+      clearTimeout(enforcePopupBoundsTimer);
+      enforcePopupBoundsTimer = null;
+    }
+  }
+});
+
+chrome.windows.onBoundsChanged.addListener((changedWindowId) => {
+  if (changedWindowId === popupWindowId) {
+    enforcePopupBounds(changedWindowId);
   }
 });
 
@@ -897,40 +978,52 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.action === 'stopScraping') {
+    scrapingState.pauseRequested = true;
     if (!scrapingState.isPaused) {
       scrapingState.isRunning = false;
       scrapingState.isPaused = true;
+      scrapingState.currentStep = 'Pause requested...';
       addLog('⏸️ Scraping paused - you can resume or export data', 'warning');
-      persistState();
     }
+    updateProgress();
     sendResponse({ success: true, paused: true });
     return true;
   }
-  
+
   if (request.action === 'hardStopScraping') {
     scrapingState.isRunning = false;
     scrapingState.isPaused = false;
     scrapingState.isCompleted = true;
     scrapingState.activeDataset = null;
     scrapingState.substepProgress = 0;
+    scrapingState.pauseRequested = false;
+    scrapingState.checkpoints = {};
+    scrapingState.pageOrder = [];
+    scrapingState.currentDatasetIndex = 0;
     addLog('Scraping terminated - cannot resume', 'error');
     updateProgress();
     sendResponse({ success: true, terminated: true });
     return true;
   }
-  
+
   if (request.action === 'resumeScraping') {
     if (scrapingState.isPaused) {
       scrapingState.isRunning = true;
       scrapingState.isPaused = false;
+      scrapingState.pauseRequested = false;
       addLog('Resuming scraping...', 'info');
-      // Resume from where we left off
-      if (scrapingState.currentPage === 'scheduleOfClasses') {
-        continueScheduleScraping();
-      } else if (scrapingState.currentPage === 'officialCurriculum') {
-        continueCurriculumScraping();
-      }
-      sendResponse({ success: true });
+      updateProgress();
+      resumeScrapingFromCheckpoint()
+        .then(() => sendResponse({ success: true }))
+        .catch((error) => {
+          scrapingState.isRunning = false;
+          scrapingState.isPaused = true;
+          scrapingState.pauseRequested = false;
+          scrapingState.currentStep = `Error: ${error.message}`;
+          scrapingState.errors.push({ step: 'resume', error: error.message });
+          updateProgress();
+          sendResponse({ success: false, error: error.message });
+        });
     } else {
       sendResponse({ success: false, error: 'Not in paused state' });
     }
@@ -982,6 +1075,85 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 // SCRAPING ENGINE
 // ============================================================================
 
+async function runScraperForPage(pageKey, options = {}) {
+  switch (pageKey) {
+    case 'scheduleOfClasses':
+      return await scrapeScheduleOfClasses(options);
+    case 'officialCurriculum':
+      return await scrapeOfficialCurriculum(options);
+    case 'grades':
+      await scrapeGrades();
+      return 'completed';
+    case 'advisoryGrades':
+      await scrapeAdvisoryGrades();
+      return 'completed';
+    case 'enrolledClasses':
+      await scrapeEnrolledClasses();
+      return 'completed';
+    case 'classSchedule':
+      await scrapeClassSchedule();
+      return 'completed';
+    case 'tuitionReceipt':
+      await scrapeTuitionReceipt();
+      return 'completed';
+    case 'studentInfo':
+      await scrapeStudentInfo();
+      return 'completed';
+    case 'programOfStudy':
+      await scrapeProgramOfStudy();
+      return 'completed';
+    case 'holdOrders':
+      await scrapeHoldOrders();
+      return 'completed';
+    case 'facultyAttendance':
+      await scrapeFacultyAttendance();
+      return 'completed';
+    default:
+      return 'completed';
+  }
+}
+
+async function runScrapingPipeline(startIndex = 0, { resume = false } = {}) {
+  const order = Array.isArray(scrapingState.pageOrder) ? scrapingState.pageOrder : [];
+  if (!order.length) {
+    return 'completed';
+  }
+
+  if (startIndex >= order.length) {
+    return 'completed';
+  }
+
+  const initialIndex = Math.max(0, startIndex);
+
+  for (let index = initialIndex; index < order.length; index++) {
+    if (isPauseActive()) {
+      scrapingState.isRunning = false;
+      scrapingState.isPaused = true;
+      scrapingState.currentDatasetIndex = index;
+      return 'paused';
+    }
+
+    const pageKey = order[index];
+    scrapingState.currentDatasetIndex = index;
+    const result = await runScraperForPage(pageKey, { resume: resume && index === initialIndex });
+
+    if (result === 'paused') {
+      scrapingState.currentDatasetIndex = index;
+      return 'paused';
+    }
+
+    scrapingState.currentDatasetIndex = index + 1;
+
+    if (isPauseActive()) {
+      scrapingState.isRunning = false;
+      scrapingState.isPaused = true;
+      return 'paused';
+    }
+  }
+
+  return 'completed';
+}
+
 // Main scraping orchestrator
 async function startScraping(options) {
   if (scrapingState.isRunning) {
@@ -992,13 +1164,16 @@ async function startScraping(options) {
   // Generate or keep existing session ID
   const sessionId = scrapingState.sessionId || generateSessionId();
 
-  const pages = normalizePageSelection((options && options.pages) || {});
+  const rawPages = (options && options.pages) || {};
+  const pages = normalizePageSelection(rawPages);
   const selectedPageKeys = Object.keys(pages).filter(key => pages[key]);
   const totalSteps = Math.max(1, selectedPageKeys.length + 1);
 
   // Reset state
   scrapingState = createInitialState({
     isRunning: true,
+    isPaused: false,
+    pauseRequested: false,
     sessionId: sessionId,
     progress: 0,
     currentStep: 'Initializing...',
@@ -1013,18 +1188,21 @@ async function startScraping(options) {
     errors: [],
     harEntries: [],
     htmlSnapshots: {},
-    selectedPages: options.pages
+    selectedPages: pages,
+    pageOrder: selectedPageKeys,
+    checkpoints: {},
+    currentDatasetIndex: 0
   });
 
   updateProgress();
 
   addLog('=== AISIS Scraping Started ===', 'info', { sessionId, step: 'bootstrap' });
   addLog(
-    `Selected pages: ${Object.keys(options.pages).filter(k => options.pages[k]).join(', ')}`,
+    `Selected pages: ${Object.keys(rawPages).filter(k => rawPages[k]).join(', ')}`,
     'info',
-    { step: 'bootstrap', pages: options.pages }
+    { step: 'bootstrap', pages: rawPages }
   );
-  
+
   try {
     // Step 1: Login
     scrapingState.currentStep = 'Logging in...';
@@ -1043,71 +1221,19 @@ async function startScraping(options) {
     scrapingState.completedSteps++;
     updateProgress();
 
-    // Step 2: Scrape selected pages
-    if (pages.scheduleOfClasses) {
-      await scrapeScheduleOfClasses();
+    scrapingState.pauseRequested = false;
+    const pipelineResult = await runScrapingPipeline(0, { resume: false });
+
+    if (pipelineResult === 'paused') {
+      scrapingState.isRunning = false;
+      scrapingState.isPaused = true;
+      scrapingState.currentStep = scrapingState.currentStep || 'Scraping paused';
+      updateProgress();
+      return;
     }
 
-    if (pages.officialCurriculum) {
-      await scrapeOfficialCurriculum();
-    }
+    await finalizeScrapingSuccess(sessionId);
 
-    if (pages.grades) {
-      await scrapeGrades();
-    }
-
-    if (pages.advisoryGrades) {
-      await scrapeAdvisoryGrades();
-    }
-
-    if (pages.enrolledClasses) {
-      await scrapeEnrolledClasses();
-    }
-
-    if (pages.classSchedule) {
-      await scrapeClassSchedule();
-    }
-
-    if (pages.tuitionReceipt) {
-      await scrapeTuitionReceipt();
-    }
-
-    if (pages.studentInfo) {
-      await scrapeStudentInfo();
-    }
-
-    if (pages.programOfStudy) {
-      await scrapeProgramOfStudy();
-    }
-
-    if (pages.holdOrders) {
-      await scrapeHoldOrders();
-    }
-
-    if (pages.facultyAttendance) {
-      await scrapeFacultyAttendance();
-    }
-    
-    // Scraping complete
-    scrapingState.isRunning = false;
-    scrapingState.isCompleted = true;
-    scrapingState.isPaused = false;
-    scrapingState.progress = 100;
-    scrapingState.activeDataset = null;
-    scrapingState.substepProgress = 0;
-    scrapingState.currentStep = 'Scraping complete!';
-    scrapingState.completedAt = new Date().toISOString();
-    addLog('=== Scraping Completed Successfully ===', 'success', { sessionId, step: 'complete' });
-
-    // Persist final state
-    persistState();
-    
-    // Send final update
-    chrome.runtime.sendMessage({ 
-      action: 'scrapingComplete', 
-      state: scrapingState 
-    }).catch(() => {});
-    
   } catch (error) {
     scrapingState.isRunning = false;
     scrapingState.currentStep = `Error: ${error.message}`;
@@ -1120,6 +1246,62 @@ async function startScraping(options) {
       state: scrapingState 
     }).catch(() => {});
   }
+}
+
+async function finalizeScrapingSuccess(sessionId) {
+  const resolvedSessionId = sessionId || scrapingState.sessionId;
+  scrapingState.isRunning = false;
+  scrapingState.isCompleted = true;
+  scrapingState.isPaused = false;
+  scrapingState.pauseRequested = false;
+  scrapingState.progress = 100;
+  scrapingState.activeDataset = null;
+  scrapingState.substepProgress = 0;
+  scrapingState.currentStep = 'Scraping complete!';
+  scrapingState.completedAt = new Date().toISOString();
+  addLog('=== Scraping Completed Successfully ===', 'success', { sessionId: resolvedSessionId, step: 'complete' });
+
+  persistState();
+
+  chrome.runtime.sendMessage({
+    action: 'scrapingComplete',
+    state: scrapingState
+  }).catch(() => {});
+}
+
+async function resumeScrapingFromCheckpoint() {
+  const order = Array.isArray(scrapingState.pageOrder) ? scrapingState.pageOrder : [];
+  if (!order.length) {
+    addLog('No scraping plan available to resume', 'warning', { step: 'resume' });
+    scrapingState.isRunning = false;
+    scrapingState.isPaused = true;
+    scrapingState.pauseRequested = false;
+    updateProgress();
+    return 'paused';
+  }
+
+  let startIndex = Number.isFinite(scrapingState.currentDatasetIndex)
+    ? Math.max(0, scrapingState.currentDatasetIndex)
+    : 0;
+
+  if (startIndex >= order.length) {
+    await finalizeScrapingSuccess(scrapingState.sessionId);
+    return 'completed';
+  }
+
+  const result = await runScrapingPipeline(startIndex, { resume: true });
+
+  if (result === 'completed') {
+    await finalizeScrapingSuccess(scrapingState.sessionId);
+  } else if (result === 'paused') {
+    scrapingState.isRunning = false;
+    scrapingState.isPaused = true;
+    scrapingState.pauseRequested = false;
+    scrapingState.currentStep = scrapingState.currentStep || 'Scraping paused';
+    updateProgress();
+  }
+
+  return result;
 }
 
 // Update progress percentage
@@ -1151,10 +1333,13 @@ function updateProgress() {
 }
 
 // Scrape Schedule of Classes
-async function scrapeScheduleOfClasses() {
-  scrapingState.currentPage = 'scheduleOfClasses';
+async function scrapeScheduleOfClasses({ resume = false } = {}) {
+  const datasetKey = 'scheduleOfClasses';
+  const datasetLabel = formatDatasetLabel(datasetKey);
+  scrapingState.currentPage = datasetKey;
+  scrapingState.activeDataset = datasetKey;
   scrapingState.currentStep = 'Scraping Schedule of Classes...';
-  addLog('Starting Schedule of Classes scrape', 'info', { step: 'scheduleOfClasses' });
+  addLog('Starting Schedule of Classes scrape', 'info', { step: datasetKey });
   
   try {
     // Step 1: Load the page to get available departments
@@ -1189,9 +1374,9 @@ async function scrapeScheduleOfClasses() {
           departments.push(value);
         }
       });
-      addLog(`Found ${departments.length} departments`, 'info', { step: 'scheduleOfClasses' });
+      addLog(`Found ${departments.length} departments`, 'info', { step: datasetKey });
     } else {
-      addLog('Could not find department dropdown', 'warning', { step: 'scheduleOfClasses' });
+      addLog('Could not find department dropdown', 'warning', { step: datasetKey });
     }
     
     // Extract applicable period (semester)
@@ -1204,36 +1389,73 @@ async function scrapeScheduleOfClasses() {
       }
     }
     
-    addLog(`Using period: ${applicablePeriod}`, 'info', { step: 'scheduleOfClasses', period: applicablePeriod });
+    addLog(`Using period: ${applicablePeriod}`, 'info', { step: datasetKey, period: applicablePeriod });
     
 
     // Step 2: Scrape each department
-    scrapingState.scrapedData.scheduleOfClasses = [];
-    scrapingState.activeDataset = 'scheduleOfClasses';
-    scrapingState.substepProgress = 0;
+    const checkpoint = getCheckpoint(datasetKey);
+    const isResuming = resume && checkpoint && Number.isFinite(checkpoint.departmentIndex);
+    const startIndex = isResuming
+      ? Math.min(Math.max(checkpoint.departmentIndex, 0), departments.length)
+      : 0;
+
+    if (!Array.isArray(scrapingState.scrapedData.scheduleOfClasses)) {
+      scrapingState.scrapedData.scheduleOfClasses = [];
+    }
+
+    if (!isResuming) {
+      scrapingState.scrapedData.scheduleOfClasses = [];
+      clearCheckpoint(datasetKey);
+    }
+
     const totalDepartments = Math.max(departments.length, 1);
-    updateDatasetProgress('scheduleOfClasses', {
-      label: formatDatasetLabel('scheduleOfClasses'),
-      completed: 0,
+    const initialCompleted = Math.min(startIndex, departments.length);
+    scrapingState.substepProgress = totalDepartments
+      ? Math.min(initialCompleted / totalDepartments, 0.999)
+      : 0;
+
+    updateDatasetProgress(datasetKey, {
+      label: datasetLabel,
+      completed: initialCompleted,
       total: departments.length,
-      items: 0
+      items: scrapingState.scrapedData.scheduleOfClasses.length,
+      detail:
+        initialCompleted >= departments.length
+          ? 'Up to date'
+          : (departments[initialCompleted] ? `Next: ${departments[initialCompleted]}` : null)
     });
     updateProgress();
 
-    for (let i = 0; i < departments.length; i++) {
-      if (!scrapingState.isRunning) {
-        addLog('Scraping stopped by user', 'warning', { step: 'scheduleOfClasses' });
-        break;
+    for (let i = startIndex; i < departments.length; i++) {
+      if (isPauseActive()) {
+        const pendingDept = departments[i];
+        setCheckpoint(datasetKey, { departmentIndex: i });
+        updateDatasetProgress(datasetKey, {
+          label: datasetLabel,
+          completed: i,
+          total: departments.length,
+          items: scrapingState.scrapedData.scheduleOfClasses.length,
+          detail: pendingDept ? `${pendingDept} (paused)` : 'Paused'
+        });
+        scrapingState.currentStep = pendingDept
+          ? `Paused before ${pendingDept}`
+          : 'Scraping paused';
+        updateProgress();
+        return 'paused';
       }
 
       const dept = departments[i];
       scrapingState.currentStep = `Scraping ${dept} schedule (${i + 1}/${departments.length})...`;
       addLog(`Fetching schedule for department: ${dept}`, 'info', {
-        step: 'scheduleOfClasses',
+        step: datasetKey,
         department: dept,
         index: i + 1,
         total: departments.length
       });
+
+      scrapingState.scrapedData.scheduleOfClasses = scrapingState.scrapedData.scheduleOfClasses.filter(
+        (entry) => entry && entry.department !== dept
+      );
 
       let detailLabel = dept;
 
@@ -1321,7 +1543,7 @@ async function scrapeScheduleOfClasses() {
             }
 
             addLog(`Scraped ${classCount} classes from ${dept}`, 'success', {
-              step: 'scheduleOfClasses',
+              step: datasetKey,
               department: dept,
               items: classCount
             });
@@ -1329,12 +1551,12 @@ async function scrapeScheduleOfClasses() {
               detailLabel = `${dept} (no data)`;
             }
           } else {
-            addLog(`No schedule table found for ${dept}`, 'warning', { step: 'scheduleOfClasses', department: dept });
+            addLog(`No schedule table found for ${dept}`, 'warning', { step: datasetKey, department: dept });
             detailLabel = `${dept} (no data)`;
           }
         } else {
           addLog(`Failed to fetch ${dept}: ${response.status}`, 'error', {
-            step: 'scheduleOfClasses',
+            step: datasetKey,
             department: dept,
             status: response.status
           });
@@ -1343,7 +1565,7 @@ async function scrapeScheduleOfClasses() {
       } catch (deptError) {
         detailLabel = `${dept} (error)`;
         addLog(`Error processing ${dept}: ${deptError.message}`, 'error', {
-          step: 'scheduleOfClasses',
+          step: datasetKey,
           department: dept,
           error: deptError.message
         });
@@ -1351,8 +1573,9 @@ async function scrapeScheduleOfClasses() {
       }
 
       const completedCount = i + 1;
-      updateDatasetProgress('scheduleOfClasses', {
-        label: formatDatasetLabel('scheduleOfClasses'),
+      setCheckpoint(datasetKey, { departmentIndex: completedCount });
+      updateDatasetProgress(datasetKey, {
+        label: datasetLabel,
         completed: completedCount,
         total: departments.length,
         items: scrapingState.scrapedData.scheduleOfClasses.length,
@@ -1360,29 +1583,34 @@ async function scrapeScheduleOfClasses() {
       });
       scrapingState.substepProgress = Math.min(completedCount / totalDepartments, 0.999);
 
-      if (completedCount < departments.length) {
-        updateProgress();
-      }
+      updateProgress();
 
-      if (!scrapingState.isRunning) {
-        break;
+      if (completedCount < departments.length && !isPauseActive()) {
+        // Rate limiting: wait 2-4 seconds between requests to avoid throttling
+        await delay(2000 + Math.random() * 2000);
       }
-
-      // Rate limiting: wait 2-4 seconds between requests to avoid throttling
-      await delay(2000 + Math.random() * 2000);
     }
 
+    clearCheckpoint(datasetKey);
+
     addLog(`Total classes scraped: ${scrapingState.scrapedData.scheduleOfClasses.length}`, 'success', {
-      step: 'scheduleOfClasses',
+      step: datasetKey,
       total: scrapingState.scrapedData.scheduleOfClasses.length
     });
     scrapingState.activeDataset = null;
     scrapingState.substepProgress = 0;
     scrapingState.completedSteps++;
+    updateDatasetProgress(datasetKey, {
+      label: datasetLabel,
+      completed: departments.length,
+      total: departments.length,
+      items: scrapingState.scrapedData.scheduleOfClasses.length,
+      detail: 'Completed'
+    });
     updateProgress();
   } catch (error) {
-    addLog(`Error scraping schedule: ${error.message}`, 'error', { step: 'scheduleOfClasses', error: error.message });
-    scrapingState.errors.push({ step: 'scheduleOfClasses', error: error.message });
+    addLog(`Error scraping schedule: ${error.message}`, 'error', { step: datasetKey, error: error.message });
+    scrapingState.errors.push({ step: datasetKey, error: error.message });
     scrapingState.activeDataset = null;
     scrapingState.substepProgress = 0;
     updateProgress();
@@ -1390,10 +1618,13 @@ async function scrapeScheduleOfClasses() {
 }
 
 // Scrape Official Curriculum
-async function scrapeOfficialCurriculum() {
-  scrapingState.currentPage = 'officialCurriculum';
+async function scrapeOfficialCurriculum({ resume = false } = {}) {
+  const datasetKey = 'officialCurriculum';
+  const datasetLabel = formatDatasetLabel(datasetKey);
+  scrapingState.currentPage = datasetKey;
+  scrapingState.activeDataset = datasetKey;
   scrapingState.currentStep = 'Scraping Official Curriculum...';
-  addLog('Starting Official Curriculum scrape', 'info', { step: 'officialCurriculum' });
+  addLog('Starting Official Curriculum scrape', 'info', { step: datasetKey });
   
   try {
     // Step 1: Load the page to get available degree codes
@@ -1428,39 +1659,77 @@ async function scrapeOfficialCurriculum() {
           degreeCodes.push({ code: value, name: opt.textContent.trim() });
         }
       });
-      addLog(`Found ${degreeCodes.length} degree programs`, 'info', { step: 'officialCurriculum' });
+      addLog(`Found ${degreeCodes.length} degree programs`, 'info', { step: datasetKey });
     } else {
-      addLog('Could not find degree code dropdown', 'warning', { step: 'officialCurriculum' });
+      addLog('Could not find degree code dropdown', 'warning', { step: datasetKey });
     }
-    
+
     // Step 2: Scrape each degree program
-    scrapingState.scrapedData.officialCurriculum = [];
-    scrapingState.activeDataset = 'officialCurriculum';
+    const checkpoint = getCheckpoint(datasetKey);
+    const isResuming = resume && checkpoint && Number.isFinite(checkpoint.programIndex);
+    const startIndex = isResuming
+      ? Math.min(Math.max(checkpoint.programIndex, 0), degreeCodes.length)
+      : 0;
+
+    if (!Array.isArray(scrapingState.scrapedData.officialCurriculum)) {
+      scrapingState.scrapedData.officialCurriculum = [];
+    }
+
+    if (!isResuming) {
+      scrapingState.scrapedData.officialCurriculum = [];
+      clearCheckpoint(datasetKey);
+    }
+
     scrapingState.substepProgress = 0;
     const totalPrograms = Math.max(degreeCodes.length, 1);
-    updateDatasetProgress('officialCurriculum', {
-      label: formatDatasetLabel('officialCurriculum'),
-      completed: 0,
+    const initialCompleted = Math.min(startIndex, degreeCodes.length);
+    scrapingState.substepProgress = totalPrograms
+      ? Math.min(initialCompleted / totalPrograms, 0.999)
+      : 0;
+
+    updateDatasetProgress(datasetKey, {
+      label: datasetLabel,
+      completed: initialCompleted,
       total: degreeCodes.length,
-      items: 0
+      items: scrapingState.scrapedData.officialCurriculum.length,
+      detail:
+        initialCompleted >= degreeCodes.length
+          ? 'Up to date'
+          : (degreeCodes[initialCompleted] ? `Next: ${degreeCodes[initialCompleted].name}` : null)
     });
     updateProgress();
 
-    for (let i = 0; i < degreeCodes.length; i++) {
-      if (!scrapingState.isRunning) {
-        addLog('Scraping stopped by user', 'warning', { step: 'officialCurriculum' });
-        break;
+    for (let i = startIndex; i < degreeCodes.length; i++) {
+      if (isPauseActive()) {
+        const pendingProgram = degreeCodes[i];
+        setCheckpoint(datasetKey, { programIndex: i });
+        updateDatasetProgress(datasetKey, {
+          label: datasetLabel,
+          completed: i,
+          total: degreeCodes.length,
+          items: scrapingState.scrapedData.officialCurriculum.length,
+          detail: pendingProgram ? `${pendingProgram.name} (paused)` : 'Paused'
+        });
+        scrapingState.currentStep = pendingProgram
+          ? `Paused before ${pendingProgram.name}`
+          : 'Scraping paused';
+        updateProgress();
+        return 'paused';
       }
 
       const degree = degreeCodes[i];
       scrapingState.currentStep = `Scraping ${degree.name} (${i + 1}/${degreeCodes.length})...`;
       addLog(`Fetching curriculum for: ${degree.name}`, 'info', {
-        step: 'officialCurriculum',
+        step: datasetKey,
         degree: degree.code,
         name: degree.name,
         index: i + 1,
         total: degreeCodes.length
       });
+
+      scrapingState.scrapedData.officialCurriculum = scrapingState.scrapedData.officialCurriculum.filter(
+        (entry) => entry && entry.degreeCode !== degree.code
+      );
 
       const formData = new URLSearchParams();
       formData.append('degCode', degree.code);
@@ -1542,14 +1811,14 @@ async function scrapeOfficialCurriculum() {
 
           if (courseCount > 0) {
             addLog(`Scraped ${courseCount} courses from ${degree.name}`, 'success', {
-              step: 'officialCurriculum',
+              step: datasetKey,
               degree: degree.code,
               name: degree.name,
               items: courseCount
             });
           } else {
             addLog(`No curriculum table found for ${degree.name}`, 'warning', {
-              step: 'officialCurriculum',
+              step: datasetKey,
               degree: degree.code,
               name: degree.name
             });
@@ -1557,7 +1826,7 @@ async function scrapeOfficialCurriculum() {
           }
         } else {
           addLog(`Failed to fetch ${degree.name}: ${response.status}`, 'error', {
-            step: 'officialCurriculum',
+            step: datasetKey,
             degree: degree.code,
             name: degree.name,
             status: response.status
@@ -1567,7 +1836,7 @@ async function scrapeOfficialCurriculum() {
       } catch (degError) {
         detailLabel = `${degree.name} (error)`;
         addLog(`Error processing ${degree.name}: ${degError.message}`, 'error', {
-          step: 'officialCurriculum',
+          step: datasetKey,
           degree: degree.code,
           name: degree.name,
           error: degError.message
@@ -1576,8 +1845,9 @@ async function scrapeOfficialCurriculum() {
       }
 
       const completedCount = i + 1;
-      updateDatasetProgress('officialCurriculum', {
-        label: formatDatasetLabel('officialCurriculum'),
+      setCheckpoint(datasetKey, { programIndex: completedCount });
+      updateDatasetProgress(datasetKey, {
+        label: datasetLabel,
         completed: completedCount,
         total: degreeCodes.length,
         items: scrapingState.scrapedData.officialCurriculum.length,
@@ -1585,29 +1855,33 @@ async function scrapeOfficialCurriculum() {
       });
       scrapingState.substepProgress = Math.min(completedCount / totalPrograms, 0.999);
 
-      if (completedCount < degreeCodes.length) {
-        updateProgress();
-      }
+      updateProgress();
 
-      if (!scrapingState.isRunning) {
-        break;
+      if (completedCount < degreeCodes.length && !isPauseActive()) {
+        await delay(2000 + Math.random() * 2000);
       }
-
-      // Rate limiting: wait 2-4 seconds between requests to avoid throttling
-      await delay(2000 + Math.random() * 2000);
     }
 
+    clearCheckpoint(datasetKey);
+
     addLog(`Total courses scraped: ${scrapingState.scrapedData.officialCurriculum.length}`, 'success', {
-      step: 'officialCurriculum',
+      step: datasetKey,
       total: scrapingState.scrapedData.officialCurriculum.length
     });
     scrapingState.activeDataset = null;
     scrapingState.substepProgress = 0;
     scrapingState.completedSteps++;
+    updateDatasetProgress(datasetKey, {
+      label: datasetLabel,
+      completed: degreeCodes.length,
+      total: degreeCodes.length,
+      items: scrapingState.scrapedData.officialCurriculum.length,
+      detail: 'Completed'
+    });
     updateProgress();
   } catch (error) {
-    addLog(`Error scraping curriculum: ${error.message}`, 'error', { step: 'officialCurriculum', error: error.message });
-    scrapingState.errors.push({ step: 'officialCurriculum', error: error.message });
+    addLog(`Error scraping curriculum: ${error.message}`, 'error', { step: datasetKey, error: error.message });
+    scrapingState.errors.push({ step: datasetKey, error: error.message });
     scrapingState.activeDataset = null;
     scrapingState.substepProgress = 0;
     updateProgress();

@@ -37,9 +37,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     const resumeScrapingLogsBtn = document.getElementById('resume-scraping-logs');
     const datasetProgressSection = document.getElementById('dataset-progress-section');
     const datasetProgressList = document.getElementById('dataset-progress-list');
-    const pinWindowBtn = document.getElementById('pin-window');
 
-    let isPinned = false;
     let currentWindowId = null;
 
     if (typeof chrome !== 'undefined' && chrome.windows && chrome.windows.getCurrent) {
@@ -109,23 +107,6 @@ document.addEventListener('DOMContentLoaded', async function() {
         applyControlState(state);
     }
     
-    if (pinWindowBtn && typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-        chrome.storage.local.get(['popupPinned'], (result) => {
-            if (typeof result.popupPinned === 'boolean') {
-                isPinned = result.popupPinned;
-                updatePinButton();
-                requestPinWindow(isPinned);
-            }
-        });
-
-        pinWindowBtn.addEventListener('click', () => {
-            isPinned = !isPinned;
-            chrome.storage.local.set({ popupPinned: isPinned });
-            updatePinButton();
-            requestPinWindow(isPinned);
-        });
-    }
-
     // Event Listeners
     saveCredentialsBtn.addEventListener('click', async () => {
         const username = usernameInput.value.trim();
@@ -380,42 +361,6 @@ document.addEventListener('DOMContentLoaded', async function() {
     });
     
     // Helper Functions
-    function updatePinButton() {
-        if (!pinWindowBtn) {
-            return;
-        }
-        pinWindowBtn.classList.toggle('active', isPinned);
-        pinWindowBtn.setAttribute('aria-pressed', String(isPinned));
-        pinWindowBtn.title = isPinned ? 'Unpin popup' : 'Pin popup';
-    }
-
-    function requestPinWindow(pinned) {
-        if (!pinWindowBtn) {
-            return;
-        }
-
-        chrome.windows.getCurrent((windowInfo) => {
-            if (!windowInfo) {
-                return;
-            }
-
-            const updateInfo = { focused: true };
-            if (typeof pinned === 'boolean') {
-                updateInfo.setAlwaysOnTop = pinned;
-            }
-
-            chrome.windows.update(windowInfo.id, updateInfo, () => {
-                if (chrome.runtime.lastError && pinned) {
-                    console.warn('Pinning not available:', chrome.runtime.lastError.message);
-                    isPinned = false;
-                    updatePinButton();
-                    chrome.storage.local.set({ popupPinned: false });
-                    pinWindowBtn.title = 'Pinning not supported in this browser version';
-                }
-            });
-        });
-    }
-
     function showProgress() {
         progressSection.classList.remove('hidden');
         logsSection.classList.remove('hidden');
