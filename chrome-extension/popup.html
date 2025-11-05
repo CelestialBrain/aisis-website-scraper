@@ -355,17 +355,32 @@
 
         .dataset-progress-row {
             display: flex;
-            align-items: center;
-            justify-content: space-between;
+            flex-direction: column;
+            gap: 2px;
             font-size: 13px;
             font-weight: 600;
             color: hsl(var(--foreground));
+        }
+
+        @media (min-width: 420px) {
+            .dataset-progress-row {
+                flex-direction: row;
+                align-items: baseline;
+                gap: 8px;
+            }
+
+            .dataset-progress-meta {
+                margin-left: auto;
+                text-align: right;
+            }
         }
 
         .dataset-progress-meta {
             font-size: 12px;
             color: hsl(var(--muted-foreground));
             font-weight: 500;
+            line-height: 1.4;
+            word-break: break-word;
         }
 
         .dataset-progress-bar {
@@ -390,12 +405,9 @@
             <span class="logo-icon">(a)</span>
             <span class="version-inline">v4.0</span>
         </div>
-        <div class="header-right">
-            <button id="pin-window" class="icon-button" title="Pin popup" aria-pressed="false">📌</button>
-            <div id="session-info" class="session-info hidden">
-                <span class="session-label">Session:</span>
-                <span id="session-id" class="session-id"></span>
-            </div>
+        <div id="session-info" class="session-info hidden">
+            <span class="session-label">Session:</span>
+            <span id="session-id" class="session-id"></span>
         </div>
     </div>
     
@@ -456,7 +468,7 @@
     <div class="section">
         <div class="btn-group">
             <button id="start-scraping" class="btn-primary" style="flex: 1;">Start Scraping</button>
-            <button id="stop-scraping" class="btn-outline btn-danger hidden" style="flex: 1;">Stop</button>
+            <button id="stop-scraping" class="btn-outline btn-danger hidden" style="flex: 1;">Pause</button>
         </div>
     </div>
     
@@ -480,7 +492,7 @@
         <div id="logs-container" class="logs-container"></div>
         <div id="log-limit-notice" class="log-footnote hidden">Showing the last 500 events. Export the logs for the complete history.</div>
         <div class="btn-group" style="margin-top: 12px;">
-            <button id="stop-scraping-logs" class="btn-outline btn-sm btn-danger">Stop</button>
+            <button id="stop-scraping-logs" class="btn-outline btn-sm btn-danger">Pause</button>
             <button id="resume-scraping-logs" class="btn-outline btn-sm btn-success hidden">Resume Scraping</button>
             <button id="delete-logs" class="btn-outline btn-sm">Delete Logs</button>
         </div>
