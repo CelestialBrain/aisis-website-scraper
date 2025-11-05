@@ -117,10 +117,22 @@
             border-bottom: 1px solid hsl(var(--border));
             background: white;
             padding: 0 20px;
+            gap: 4px;
+            overflow-x: auto;
+            scrollbar-width: thin;
         }
-        
+
+        .tabs::-webkit-scrollbar {
+            height: 4px;
+        }
+
+        .tabs::-webkit-scrollbar-thumb {
+            background: hsl(var(--border));
+            border-radius: 999px;
+        }
+
         .tab {
-            padding: 12px 20px;
+            padding: 12px 16px;
             border: none;
             background: transparent;
             color: hsl(var(--muted-foreground));
@@ -129,6 +141,7 @@
             cursor: pointer;
             border-bottom: 2px solid transparent;
             transition: all 0.2s;
+            flex: 0 0 auto;
         }
         
         .tab:hover {
@@ -148,6 +161,133 @@
         .tab-content.active {
             display: block;
         }
+
+        .dataset-progress-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .dataset-progress-card {
+            border: 1px solid hsl(var(--border));
+            border-radius: 8px;
+            background: white;
+            padding: 14px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .dataset-progress-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: 600;
+            color: hsl(var(--foreground));
+        }
+
+        .dataset-progress-meta {
+            font-size: 12px;
+            color: hsl(var(--muted-foreground));
+        }
+
+        .dataset-progress-bar {
+            height: 8px;
+            border-radius: 999px;
+            background: hsl(var(--secondary));
+            overflow: hidden;
+        }
+
+        .dataset-progress-fill {
+            height: 100%;
+            background: hsl(var(--primary));
+            transition: width 0.3s ease;
+        }
+
+        .dataset-progress-footnote {
+            font-size: 12px;
+            color: hsl(var(--muted-foreground));
+        }
+
+        .table-wrapper {
+            overflow: auto;
+            border: 1px solid hsl(var(--border));
+            border-radius: 8px;
+            background: white;
+            margin-bottom: 16px;
+        }
+
+        .table-wrapper table {
+            margin: 0;
+        }
+
+        .generic-table-list {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .generic-table {
+            border: 1px solid hsl(var(--border));
+            border-radius: 8px;
+            background: white;
+            overflow: hidden;
+        }
+
+        .generic-table-header {
+            padding: 12px 16px;
+            background: hsl(var(--secondary));
+            font-weight: 600;
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .generic-table-body {
+            padding: 12px 16px;
+            overflow: auto;
+        }
+
+        .generic-table-body table {
+            margin: 0;
+        }
+
+        .generic-table-body pre {
+            margin: 0;
+            white-space: pre-wrap;
+            font-family: 'Inter', system-ui, sans-serif;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .accordion {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 16px;
+            max-height: 440px;
+            overflow: auto;
+            padding-right: 4px;
+        }
+
+        .accordion details {
+            border: 1px solid hsl(var(--border));
+            border-radius: 8px;
+            background: white;
+            padding: 8px 12px;
+        }
+
+        .accordion summary {
+            cursor: pointer;
+            font-weight: 600;
+            color: hsl(var(--foreground));
+            outline: none;
+        }
+
+        .accordion table {
+            margin-top: 12px;
+        }
         
         .stats-grid {
             display: grid;
@@ -155,26 +295,45 @@
             gap: 16px;
             margin-bottom: 24px;
         }
-        
+
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
         .stat-card {
             padding: 16px;
             border-radius: 8px;
             border: 1px solid hsl(var(--border));
             background: white;
         }
-        
+
         .stat-label {
             font-size: 12px;
             color: hsl(var(--muted-foreground));
             margin-bottom: 4px;
         }
-        
+
         .stat-value {
             font-size: 24px;
             font-weight: 700;
             color: hsl(var(--primary));
         }
-        
+
+        .stat-value-sm {
+            font-size: 18px;
+            font-weight: 600;
+            color: hsl(var(--foreground));
+        }
+
+        .stat-description {
+            font-size: 12px;
+            color: hsl(var(--muted-foreground));
+            margin-top: 6px;
+        }
+
         .data-table {
             width: 100%;
             border-collapse: collapse;
@@ -262,11 +421,18 @@
             margin-bottom: 16px;
             color: hsl(var(--foreground));
         }
-        
+
+        .section-subtitle {
+            font-size: 12px;
+            font-weight: 500;
+            color: hsl(var(--muted-foreground));
+            margin-left: 8px;
+        }
+
         .hidden {
             display: none !important;
         }
-        
+
         .main-content {
             height: calc(600px - 64px);
             overflow-y: auto;
@@ -286,6 +452,109 @@
         .main-content::-webkit-scrollbar-thumb {
             background-color: hsl(var(--muted-foreground) / 0.3);
             border-radius: 3px;
+        }
+
+        .performance-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+            margin: 24px 0;
+        }
+
+        .log-list {
+            max-height: 360px;
+            overflow-y: auto;
+            background: white;
+            border: 1px solid hsl(var(--border));
+            border-radius: 8px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .log-item {
+            border-left: 3px solid transparent;
+            padding-left: 12px;
+        }
+
+        .log-item.log-error { border-color: hsl(var(--danger)); }
+        .log-item.log-warning { border-color: hsl(var(--warning)); }
+        .log-item.log-success { border-color: hsl(var(--success)); }
+
+        .log-meta {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: hsl(var(--muted-foreground));
+            display: flex;
+            gap: 12px;
+            margin-bottom: 4px;
+        }
+
+        .log-level {
+            font-weight: 600;
+        }
+
+        .log-time {
+            color: hsl(var(--muted-foreground));
+        }
+
+        .log-message {
+            font-size: 13px;
+            color: hsl(var(--foreground));
+            font-weight: 500;
+        }
+
+        .log-context {
+            font-size: 11px;
+            color: hsl(var(--muted-foreground));
+            margin-top: 6px;
+            line-height: 1.4;
+        }
+
+        .log-footnote {
+            margin-top: 12px;
+            font-size: 12px;
+            color: hsl(var(--muted-foreground));
+        }
+
+        .error-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .error-item {
+            display: flex;
+            flex-direction: column;
+            padding: 12px;
+            border: 1px solid hsl(var(--border));
+            border-radius: 8px;
+            background: white;
+        }
+
+        .error-step {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: hsl(var(--muted-foreground));
+        }
+
+        .error-message {
+            font-size: 13px;
+            color: hsl(var(--danger));
+            margin-top: 4px;
+            font-weight: 500;
+        }
+
+        .error-empty {
+            font-size: 13px;
+            color: hsl(var(--muted-foreground));
+            padding: 12px 0;
         }
     </style>
 </head>
@@ -307,14 +576,48 @@
     <!-- Tab Navigation -->
     <div class="tabs">
         <button class="tab active" data-tab="overview">Overview</button>
+        <button class="tab" data-tab="curriculum">Curriculum</button>
         <button class="tab" data-tab="grades">Grades</button>
         <button class="tab" data-tab="schedule">Schedule</button>
+        <button class="tab" data-tab="enrollment">Enrollment</button>
         <button class="tab" data-tab="student">Student Info</button>
         <button class="tab" data-tab="program">Program of Study</button>
+        <button class="tab" data-tab="tuition">Tuition</button>
+        <button class="tab" data-tab="hold">Hold Orders</button>
+        <button class="tab" data-tab="faculty">Faculty</button>
+        <button class="tab" data-tab="logs">Logs</button>
     </div>
-    
+
     <!-- Overview Tab -->
     <div id="overview-tab" class="tab-content active">
+        <div class="status-grid">
+            <div class="stat-card">
+                <div class="stat-label">Last Scrape</div>
+                <div class="stat-value-sm" id="last-scrape">Never</div>
+                <div class="stat-description" id="data-age-label">No runs yet</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Session</div>
+                <div class="stat-value-sm" id="session-summary">Idle</div>
+                <div class="stat-description" id="session-id-display">—</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Steps Completed</div>
+                <div class="stat-value-sm" id="steps-completed">0</div>
+                <div class="stat-description" id="steps-total">No plan yet</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Errors</div>
+                <div class="stat-value-sm" id="error-count">0</div>
+                <div class="stat-description" id="error-summary">No issues detected</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Last Event</div>
+                <div class="stat-value-sm" id="last-log-message">No activity yet</div>
+                <div class="stat-description" id="last-log-time">—</div>
+            </div>
+        </div>
+
         <div class="stats-grid">
             <div class="stat-card">
                 <div class="stat-label">Current QPI</div>
@@ -333,8 +636,36 @@
                 <div class="stat-value" id="current-courses">--</div>
             </div>
         </div>
-        
-        <div class="section-title">Current Semester</div>
+
+        <div class="section-title">Scraper Health</div>
+        <div class="performance-grid">
+            <div class="stat-card">
+                <div class="stat-label">Total Requests</div>
+                <div class="stat-value" id="metric-total-requests">0</div>
+                <div class="stat-description" id="metric-last-request">--</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Average Response</div>
+                <div class="stat-value" id="metric-avg-response">--</div>
+                <div class="stat-description">Slow responses: <span id="metric-slow-responses">0</span></div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Bandwidth Used</div>
+                <div class="stat-value" id="metric-bytes">0 B</div>
+                <div class="stat-description" id="metric-last-status">--</div>
+            </div>
+        </div>
+
+        <div class="section-title">Dataset Progress</div>
+        <div id="dataset-progress-overview" class="dataset-progress-grid">
+            <div class="empty-state" id="dataset-progress-empty">
+                <div class="empty-state-icon">📡</div>
+                <div class="empty-state-title">No Active Runs</div>
+                <div class="empty-state-description">Start the scraper to watch dataset progress updates in real-time.</div>
+            </div>
+        </div>
+
+        <div class="section-title">Current Semester <span id="current-term-label" class="section-subtitle">No recent term detected</span></div>
         <table class="data-table" id="current-courses-table">
             <thead>
                 <tr>
@@ -356,8 +687,37 @@
                 </tr>
             </tbody>
         </table>
+
+        <div class="section-title">Outstanding Issues</div>
+        <ul id="error-list" class="error-list">
+            <li class="error-empty">No errors recorded</li>
+        </ul>
     </div>
-    
+
+    <!-- Curriculum Tab -->
+    <div id="curriculum-tab" class="tab-content">
+        <div class="section-title">Official Curriculum</div>
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Degree Programs</div>
+                <div class="stat-value" id="curriculum-program-count">0</div>
+                <div class="stat-description">Courses scraped: <span id="curriculum-course-count">0</span></div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Last Updated</div>
+                <div class="stat-value-sm" id="curriculum-updated">—</div>
+                <div class="stat-description">Tracks progress while scraping curricula</div>
+            </div>
+        </div>
+        <div id="curriculum-groups" class="accordion">
+            <div class="empty-state" id="curriculum-empty">
+                <div class="empty-state-icon">📚</div>
+                <div class="empty-state-title">No Curriculum Data</div>
+                <div class="empty-state-description">Run the scraper with Official Curriculum selected.</div>
+            </div>
+        </div>
+    </div>
+
     <!-- Grades Tab -->
     <div id="grades-tab" class="tab-content">
         <div class="section-title">All Grades</div>
@@ -384,39 +744,105 @@
                 </tr>
             </tbody>
         </table>
+
+        <div class="section-title">Advisory Grades</div>
+        <div id="advisory-tables" class="generic-table-list">
+            <div class="empty-state" id="advisory-empty">
+                <div class="empty-state-icon">🗂️</div>
+                <div class="empty-state-title">No Advisory Grades</div>
+                <div class="empty-state-description">Scrape the Advisory Grades page to populate this section.</div>
+            </div>
+        </div>
     </div>
-    
+
     <!-- Schedule Tab -->
     <div id="schedule-tab" class="tab-content">
         <div class="section-title">Class Schedule</div>
-        <table class="data-table" id="schedule-table">
-            <thead>
-                <tr>
-                    <th>Course Code</th>
-                    <th>Section</th>
-                    <th>Schedule</th>
-                    <th>Room</th>
-                    <th>Instructor</th>
-                </tr>
-            </thead>
-            <tbody id="schedule-body">
-                <tr>
-                    <td colspan="5">
-                        <div class="empty-state">
-                            <div class="empty-state-icon">📅</div>
-                            <div class="empty-state-title">No Schedule Data</div>
-                            <div class="empty-state-description">Run the scraper to view your schedule</div>
-                        </div>
-                    </td>
-                </tr>
-            </tbody>
-        </table>
+        <div class="table-wrapper">
+            <table class="data-table" id="schedule-table">
+                <thead>
+                    <tr>
+                        <th>Course Code</th>
+                        <th>Section</th>
+                        <th>Schedule</th>
+                        <th>Room</th>
+                        <th>Instructor</th>
+                    </tr>
+                </thead>
+                <tbody id="schedule-body">
+                    <tr>
+                        <td colspan="5">
+                            <div class="empty-state">
+                                <div class="empty-state-icon">📅</div>
+                                <div class="empty-state-title">No Schedule Data</div>
+                                <div class="empty-state-description">Run the scraper to view your schedule</div>
+                            </div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="section-title">Schedule of Classes</div>
+        <div class="table-wrapper">
+            <table class="data-table" id="schedule-of-classes-table">
+                <thead>
+                    <tr>
+                        <th>Department</th>
+                        <th>Subject Code</th>
+                        <th>Section</th>
+                        <th>Course Title</th>
+                        <th>Units</th>
+                        <th>Time</th>
+                        <th>Room</th>
+                        <th>Instructor</th>
+                        <th>Max</th>
+                        <th>Lang</th>
+                        <th>Level</th>
+                        <th>Free Slots</th>
+                        <th>Remarks</th>
+                    </tr>
+                </thead>
+                <tbody id="schedule-of-classes-body">
+                    <tr>
+                        <td colspan="13">
+                            <div class="empty-state">
+                                <div class="empty-state-icon">🗓️</div>
+                                <div class="empty-state-title">No Schedule of Classes</div>
+                                <div class="empty-state-description">Scrape the Schedule of Classes page to populate this table.</div>
+                            </div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
     </div>
-    
+
+    <!-- Enrollment Tab -->
+    <div id="enrollment-tab" class="tab-content">
+        <div class="section-title">Currently Enrolled Classes</div>
+        <div id="enrolled-tables" class="generic-table-list">
+            <div class="empty-state" id="enrolled-empty">
+                <div class="empty-state-icon">📝</div>
+                <div class="empty-state-title">No Enrollment Records</div>
+                <div class="empty-state-description">Run the scraper with Currently Enrolled Classes selected.</div>
+            </div>
+        </div>
+
+        <div class="section-title">My Class Schedule</div>
+        <div id="class-schedule-tables" class="generic-table-list">
+            <div class="empty-state" id="class-schedule-empty">
+                <div class="empty-state-icon">🗂️</div>
+                <div class="empty-state-title">No Class Schedule Data</div>
+                <div class="empty-state-description">Scrape the My Class Schedule page to view this section.</div>
+            </div>
+        </div>
+    </div>
+
     <!-- Student Info Tab -->
     <div id="student-tab" class="tab-content">
         <div class="section-title">Student Information</div>
-        <div id="student-info-content">
+        <div id="student-info-content" class="generic-table-list">
             <div class="empty-state">
                 <div class="empty-state-icon">👤</div>
                 <div class="empty-state-title">No Student Data</div>
@@ -424,17 +850,65 @@
             </div>
         </div>
     </div>
-    
+
     <!-- Program of Study Tab -->
     <div id="program-tab" class="tab-content">
         <div class="section-title">Program of Study</div>
-        <div id="program-content">
-            <div class="empty-state">
+        <div id="program-content" class="generic-table-list">
+            <div class="empty-state" id="program-empty">
                 <div class="empty-state-icon">🎓</div>
                 <div class="empty-state-title">No Program Data</div>
                 <div class="empty-state-description">Run the scraper to view your program of study</div>
             </div>
         </div>
+    </div>
+
+    <!-- Tuition Tab -->
+    <div id="tuition-tab" class="tab-content">
+        <div class="section-title">Tuition Receipt</div>
+        <div id="tuition-tables" class="generic-table-list">
+            <div class="empty-state" id="tuition-empty">
+                <div class="empty-state-icon">💳</div>
+                <div class="empty-state-title">No Tuition Data</div>
+                <div class="empty-state-description">Scrape the Tuition Receipt page to populate this table.</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Hold Orders Tab -->
+    <div id="hold-tab" class="tab-content">
+        <div class="section-title">Hold Orders</div>
+        <div id="hold-tables" class="generic-table-list">
+            <div class="empty-state" id="hold-empty">
+                <div class="empty-state-icon">⛔</div>
+                <div class="empty-state-title">No Hold Orders</div>
+                <div class="empty-state-description">Scrape the Hold Orders page to view holds here.</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Faculty Tab -->
+    <div id="faculty-tab" class="tab-content">
+        <div class="section-title">Faculty Attendance</div>
+        <div id="faculty-tables" class="generic-table-list">
+            <div class="empty-state" id="faculty-empty">
+                <div class="empty-state-icon">🎓</div>
+                <div class="empty-state-title">No Faculty Records</div>
+                <div class="empty-state-description">Scrape the Faculty Attendance page to populate this table.</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Logs Tab -->
+    <div id="logs-tab" class="tab-content">
+        <div class="section-title">Recent Logs</div>
+        <div id="logs-empty" class="empty-state">
+            <div class="empty-state-icon">📝</div>
+            <div class="empty-state-title">No Logs Yet</div>
+            <div class="empty-state-description">Run the scraper to capture activity.</div>
+        </div>
+        <div id="logs-feed" class="log-list hidden"></div>
+        <div id="logs-footnote" class="log-footnote hidden">Showing latest events.</div>
     </div>
     </div><!-- End main-content -->
     

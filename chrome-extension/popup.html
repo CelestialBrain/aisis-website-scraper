@@ -287,9 +287,70 @@
             padding: 4px 0;
             border-bottom: 1px solid hsl(var(--border));
         }
-        
+
         .log-entry:last-child {
             border-bottom: none;
+        }
+
+        .log-context {
+            display: block;
+            margin-top: 2px;
+            color: hsl(var(--muted-foreground));
+            font-size: 10px;
+            opacity: 0.8;
+        }
+
+        .log-footnote {
+            font-size: 11px;
+            color: hsl(var(--muted-foreground));
+            margin-top: 8px;
+        }
+
+        .dataset-progress-section {
+            padding: 0 20px 16px 20px;
+            border-bottom: 1px solid hsl(var(--border));
+        }
+
+        .dataset-progress-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .dataset-progress-item {
+            border: 1px solid hsl(var(--border));
+            border-radius: calc(var(--radius) - 2px);
+            padding: 10px 12px;
+            background: hsl(var(--card));
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .dataset-progress-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            font-weight: 600;
+            color: hsl(var(--foreground));
+        }
+
+        .dataset-progress-bar {
+            height: 6px;
+            border-radius: 999px;
+            background: hsl(var(--secondary));
+            overflow: hidden;
+        }
+
+        .dataset-progress-fill {
+            height: 100%;
+            background: hsl(var(--primary));
+            transition: width 0.2s ease;
+        }
+
+        .dataset-progress-meta {
+            font-size: 11px;
+            color: hsl(var(--muted-foreground));
         }
         
         .log-info { color: hsl(var(--muted-foreground)); }
@@ -330,9 +391,12 @@
             <span class="logo-icon">(a)</span>
             <span class="version-inline">v4.0</span>
         </div>
-        <div id="session-info" class="session-info hidden">
-            <span class="session-label">Session:</span>
-            <span id="session-id" class="session-id"></span>
+        <div class="header-right">
+            <button id="pin-window" class="icon-button" title="Pin popup" aria-pressed="false">📌</button>
+            <div id="session-info" class="session-info hidden">
+                <span class="session-label">Session:</span>
+                <span id="session-id" class="session-id"></span>
+            </div>
         </div>
     </div>
     
@@ -405,11 +469,17 @@
         <div id="status-text" class="status-text">Initializing...</div>
         <div id="time-estimate" class="time-estimate"></div>
     </div>
-    
+
+    <div id="dataset-progress-section" class="dataset-progress-section hidden">
+        <div class="section-title">Dataset Progress</div>
+        <div id="dataset-progress-list" class="dataset-progress-list"></div>
+    </div>
+
     <!-- Logs Section -->
     <div id="logs-section" class="section hidden">
         <div class="section-title">Debug Logs</div>
         <div id="logs-container" class="logs-container"></div>
+        <div id="log-limit-notice" class="log-footnote hidden">Showing the last 500 events. Export the logs for the complete history.</div>
         <div class="btn-group" style="margin-top: 12px;">
             <button id="stop-scraping-logs" class="btn-outline btn-sm btn-danger">Stop</button>
             <button id="resume-scraping-logs" class="btn-outline btn-sm btn-success hidden">Resume Scraping</button>

@@ -1,5 +1,19 @@
 // AISIS Auto Scraper - Popup Script
 
+const DATASET_LABELS = {
+    officialCurriculum: 'Curriculum',
+    scheduleOfClasses: 'Schedule of Classes',
+    grades: 'View Grades',
+    advisoryGrades: 'Advisory Grades',
+    enrolledClasses: 'Currently Enrolled',
+    classSchedule: 'My Class Schedule',
+    tuitionReceipt: 'Tuition Receipt',
+    studentInfo: 'Student Information',
+    programOfStudy: 'Program of Study',
+    holdOrders: 'Hold Orders',
+    facultyAttendance: 'Faculty Attendance'
+};
+
 document.addEventListener('DOMContentLoaded', async function() {
     // DOM Elements
     const usernameInput = document.getElementById('username');
@@ -14,11 +28,38 @@ document.addEventListener('DOMContentLoaded', async function() {
     const statusText = document.getElementById('status-text');
     const timeEstimate = document.getElementById('time-estimate');
     const logsContainer = document.getElementById('logs-container');
+    const logLimitNotice = document.getElementById('log-limit-notice');
     const downloadLogsBtn = document.getElementById('download-logs');
     const exportJsonBtn = document.getElementById('export-json');
     const exportCsvBtn = document.getElementById('export-csv');
     const viewDataBtn = document.getElementById('view-data');
-    
+    const stopScrapingLogsBtn = document.getElementById('stop-scraping-logs');
+    const resumeScrapingLogsBtn = document.getElementById('resume-scraping-logs');
+    const datasetProgressSection = document.getElementById('dataset-progress-section');
+    const datasetProgressList = document.getElementById('dataset-progress-list');
+    const pinWindowBtn = document.getElementById('pin-window');
+
+    let isPinned = false;
+
+    if (pinWindowBtn) {
+        chrome.storage.local.get(['popupPinned'], (result) => {
+            if (typeof result.popupPinned === 'boolean') {
+                isPinned = result.popupPinned;
+                updatePinButton();
+                if (isPinned) {
+                    requestPinWindow(true);
+                }
+            }
+        });
+
+        pinWindowBtn.addEventListener('click', () => {
+            isPinned = !isPinned;
+            updatePinButton();
+            chrome.storage.local.set({ popupPinned: isPinned });
+            requestPinWindow(isPinned);
+        });
+    }
+
     // Load saved credentials
     const credentials = await loadCredentials();
     if (credentials) {
@@ -55,8 +96,10 @@ document.addEventListener('DOMContentLoaded', async function() {
         startScrapingBtn.textContent = 'Resume Scraping';
         startScrapingBtn.classList.remove('hidden');
         // Update logs section buttons
-        stopScrapingLogsBtn.classList.add('hidden');
-        resumeScrapingLogsBtn.classList.remove('hidden');
+        if (stopScrapingLogsBtn && resumeScrapingLogsBtn) {
+            stopScrapingLogsBtn.classList.add('hidden');
+            resumeScrapingLogsBtn.classList.remove('hidden');
+        }
         updateUI(state);
     } else if (state.isCompleted || (state.scrapedData && Object.keys(state.scrapedData).length > 0)) {
         // Show export section if scraping completed or data exists
@@ -159,35 +202,35 @@ document.addEventListener('DOMContentLoaded', async function() {
     });
     
     // Stop button in logs section
-    const stopScrapingLogsBtn = document.getElementById('stop-scraping-logs');
-    const resumeScrapingLogsBtn = document.getElementById('resume-scraping-logs');
-    
-    stopScrapingLogsBtn.addEventListener('click', async () => {
-        const result = await sendMessage({ action: 'stopScraping' });
-        if (result.success && result.paused) {
-            // Toggle buttons in logs section
-            stopScrapingLogsBtn.classList.add('hidden');
-            resumeScrapingLogsBtn.classList.remove('hidden');
-            
-            // Show export section and update main buttons
-            exportSection.classList.remove('hidden');
-            stopScrapingBtn.classList.add('hidden');
-            startScrapingBtn.textContent = 'Resume Scraping';
-            startScrapingBtn.classList.remove('hidden');
-        }
-    });
-    
-    resumeScrapingLogsBtn.addEventListener('click', async () => {
-        // Same as clicking main Resume button
-        startScrapingBtn.click();
-    });
+    if (stopScrapingLogsBtn && resumeScrapingLogsBtn) {
+        stopScrapingLogsBtn.addEventListener('click', async () => {
+            const result = await sendMessage({ action: 'stopScraping' });
+            if (result.success && result.paused) {
+                // Toggle buttons in logs section
+                stopScrapingLogsBtn.classList.add('hidden');
+                resumeScrapingLogsBtn.classList.remove('hidden');
+
+                // Show export section and update main buttons
+                exportSection.classList.remove('hidden');
+                stopScrapingBtn.classList.add('hidden');
+                startScrapingBtn.textContent = 'Resume Scraping';
+                startScrapingBtn.classList.remove('hidden');
+            }
+        });
+
+        resumeScrapingLogsBtn.addEventListener('click', async () => {
+            // Same as clicking main Resume button
+            startScrapingBtn.click();
+        });
+    }
     
     downloadLogsBtn.addEventListener('click', async () => {
         const state = await getState();
-        const logsText = state.logs.map(log => 
-            `[${log.timestamp}] [${log.type.toUpperCase()}] ${log.message}`
-        ).join('\n');
-        
+        const logsText = state.logs.map(log => {
+            const context = formatLogContextPlain(log.context);
+            return `[${log.timestamp}] [${log.type.toUpperCase()}] ${log.message}${context ? ' | ' + context : ''}`;
+        }).join('\n');
+
         downloadFile(logsText, 'aisis_scraper_logs.txt', 'text/plain');
     });
     
@@ -280,14 +323,18 @@ document.addEventListener('DOMContentLoaded', async function() {
                 startScrapingBtn.classList.remove('hidden');
                 exportSection.classList.remove('hidden');
                 // Update logs section buttons
-                stopScrapingLogsBtn.classList.add('hidden');
-                resumeScrapingLogsBtn.classList.remove('hidden');
+                if (stopScrapingLogsBtn && resumeScrapingLogsBtn) {
+                    stopScrapingLogsBtn.classList.add('hidden');
+                    resumeScrapingLogsBtn.classList.remove('hidden');
+                }
             } else if (message.state.isRunning) {
                 stopScrapingBtn.classList.remove('hidden');
                 startScrapingBtn.classList.add('hidden');
                 // Update logs section buttons
-                stopScrapingLogsBtn.classList.remove('hidden');
-                resumeScrapingLogsBtn.classList.add('hidden');
+                if (stopScrapingLogsBtn && resumeScrapingLogsBtn) {
+                    stopScrapingLogsBtn.classList.remove('hidden');
+                    resumeScrapingLogsBtn.classList.add('hidden');
+                }
             }
         } else if (message.action === 'scrapingComplete') {
             updateUI(message.state);
@@ -301,6 +348,42 @@ document.addEventListener('DOMContentLoaded', async function() {
     });
     
     // Helper Functions
+    function updatePinButton() {
+        if (!pinWindowBtn) {
+            return;
+        }
+        pinWindowBtn.classList.toggle('active', isPinned);
+        pinWindowBtn.setAttribute('aria-pressed', String(isPinned));
+        pinWindowBtn.title = isPinned ? 'Unpin popup' : 'Pin popup';
+    }
+
+    function requestPinWindow(pinned) {
+        if (!pinWindowBtn) {
+            return;
+        }
+
+        chrome.windows.getCurrent((windowInfo) => {
+            if (!windowInfo) {
+                return;
+            }
+
+            const updateInfo = { focused: true };
+            if (typeof pinned === 'boolean') {
+                updateInfo.setAlwaysOnTop = pinned;
+            }
+
+            chrome.windows.update(windowInfo.id, updateInfo, () => {
+                if (chrome.runtime.lastError && pinned) {
+                    console.warn('Pinning not available:', chrome.runtime.lastError.message);
+                    isPinned = false;
+                    updatePinButton();
+                    chrome.storage.local.set({ popupPinned: false });
+                    pinWindowBtn.title = 'Pinning not supported in this browser version';
+                }
+            });
+        });
+    }
+
     function showProgress() {
         progressSection.classList.remove('hidden');
         logsSection.classList.remove('hidden');
@@ -343,11 +426,19 @@ document.addEventListener('DOMContentLoaded', async function() {
         
         // Update logs
         if (state.logs && state.logs.length > 0) {
-            logsContainer.innerHTML = state.logs.map(log => 
-                `<div class="log-entry log-${log.type}">[${new Date(log.timestamp).toLocaleTimeString()}] ${log.message}</div>`
-            ).join('');
+            logsContainer.innerHTML = state.logs.map(renderLogEntry).join('');
             logsContainer.scrollTop = logsContainer.scrollHeight;
+            if (logLimitNotice) {
+                logLimitNotice.classList.toggle('hidden', !state.logsTrimmed);
+            }
+        } else {
+            logsContainer.innerHTML = '';
+            if (logLimitNotice) {
+                logLimitNotice.classList.add('hidden');
+            }
         }
+
+        renderDatasetProgress(state.datasetProgress || {});
     }
     
     async function loadCredentials() {
@@ -405,7 +496,160 @@ document.addEventListener('DOMContentLoaded', async function() {
             });
             csv += '\n';
         }
-        
+
         return csv || 'No data available';
+    }
+
+    function renderLogEntry(log) {
+        const time = new Date(log.timestamp).toLocaleTimeString();
+        const context = formatLogContextHTML(log.context);
+        return `<div class="log-entry log-${log.type}">[${time}] ${log.message}${context}</div>`;
+    }
+
+    function renderDatasetProgress(progressMap = {}) {
+        if (!datasetProgressSection || !datasetProgressList) {
+            return;
+        }
+
+        const entries = Object.entries(progressMap).filter(([, value]) => value && typeof value === 'object');
+
+        if (!entries.length) {
+            datasetProgressList.innerHTML = '';
+            datasetProgressSection.classList.add('hidden');
+            return;
+        }
+
+        datasetProgressSection.classList.remove('hidden');
+
+        const items = entries
+            .sort((a, b) => {
+                const labelA = (a[1].label || formatDatasetLabel(a[0])).toLowerCase();
+                const labelB = (b[1].label || formatDatasetLabel(b[0])).toLowerCase();
+                return labelA.localeCompare(labelB);
+            })
+            .map(([key, value]) => {
+                const completed = Number(value.completed) || 0;
+                const total = Number(value.total) || 0;
+                const displayTotal = total || Math.max(completed, 1);
+                const percent = displayTotal > 0 ? Math.min(100, Math.round((completed / displayTotal) * 100)) : 0;
+                const itemsCount = Number(value.items) || 0;
+                const label = value.label || formatDatasetLabel(key);
+                const detail = value.detail ? escapeHtml(String(value.detail)) : '';
+                const metaParts = [];
+                if (itemsCount) {
+                    metaParts.push(`${itemsCount.toLocaleString()} items`);
+                }
+                if (value.updatedAt) {
+                    metaParts.push(`Updated ${escapeHtml(formatRelativeTime(value.updatedAt))}`);
+                }
+                const meta = metaParts.join(' • ');
+
+                return `
+                    <div class="dataset-progress-item">
+                        <div class="dataset-progress-header">
+                            <span>${escapeHtml(label)}</span>
+                            <span>${completed.toLocaleString()}/${displayTotal.toLocaleString()}</span>
+                        </div>
+                        <div class="dataset-progress-bar">
+                            <div class="dataset-progress-fill" style="width: ${percent}%;"></div>
+                        </div>
+                        <div class="dataset-progress-meta">${meta || 'No metrics yet'}</div>
+                        ${detail ? `<div class="dataset-progress-meta">${detail}</div>` : ''}
+                    </div>
+                `;
+            })
+            .join('');
+
+        datasetProgressList.innerHTML = items;
+    }
+
+    function formatDatasetLabel(key) {
+        if (!key) {
+            return 'Dataset';
+        }
+        if (DATASET_LABELS[key]) {
+            return DATASET_LABELS[key];
+        }
+        return key
+            .replace(/([A-Z])/g, ' $1')
+            .replace(/_/g, ' ')
+            .replace(/^./, chr => chr.toUpperCase())
+            .trim();
+    }
+
+    function formatLogContextHTML(context = {}) {
+        if (!context || typeof context !== 'object') {
+            return '';
+        }
+        const entries = Object.entries(context).filter(([, value]) => value !== undefined && value !== null);
+        if (!entries.length) {
+            return '';
+        }
+        const formatted = entries.map(([key, value]) => `${key}: ${formatContextValue(value)}`).join(' · ');
+        return `<span class="log-context">${formatted}</span>`;
+    }
+
+    function formatLogContextPlain(context = {}) {
+        if (!context || typeof context !== 'object') {
+            return '';
+        }
+        const entries = Object.entries(context).filter(([, value]) => value !== undefined && value !== null);
+        if (!entries.length) {
+            return '';
+        }
+        return entries.map(([key, value]) => `${key}=${formatContextValue(value)}`).join(', ');
+    }
+
+    function formatContextValue(value) {
+        if (typeof value === 'number') {
+            return Number.isInteger(value) ? value : value.toFixed(2);
+        }
+        if (typeof value === 'string') {
+            return value;
+        }
+        if (value instanceof Date) {
+            return value.toISOString();
+        }
+        try {
+            return JSON.stringify(value);
+        } catch (error) {
+            return String(value);
+        }
+    }
+
+    function escapeHtml(value) {
+        if (value === null || value === undefined) {
+            return '';
+        }
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function formatRelativeTime(isoString) {
+        if (!isoString) {
+            return '—';
+        }
+        const date = new Date(isoString);
+        if (Number.isNaN(date.getTime())) {
+            return '—';
+        }
+        const diffMs = Date.now() - date.getTime();
+        if (diffMs < 60_000) {
+            return 'just now';
+        }
+        const diffMinutes = Math.floor(diffMs / 60_000);
+        if (diffMinutes < 60) {
+            return `${diffMinutes}m ago`;
+        }
+        const diffHours = Math.floor(diffMinutes / 60);
+        if (diffHours < 24) {
+            return `${diffHours}h ago`;
+        }
+        const diffDays = Math.floor(diffHours / 24);
+        return `${diffDays}d ago`;
     }
 });
