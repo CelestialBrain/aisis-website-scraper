@@ -6,7 +6,8 @@
   "permissions": [
     "storage",
     "downloads",
-    "alarms"
+    "alarms",
+    "windows"
   ],
   "host_permissions": [
     "https://aisis.ateneo.edu/*"

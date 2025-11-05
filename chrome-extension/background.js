@@ -3,6 +3,24 @@
 
 const LOG_HISTORY_LIMIT = 500;
 const DEFAULT_FETCH_TIMEOUT_MS = 90_000; // 90s timeout to tolerate slow AISIS responses
+const MAX_HAR_ENTRIES = 200;
+const MAX_HAR_BODY_LENGTH = 200_000; // Limit HAR bodies to ~200 KB to avoid excessive storage use
+const MAX_HTML_SNAPSHOTS = 20;
+const MAX_HTML_SNAPSHOT_SIZE = 250_000; // Limit HTML snapshots to ~250 KB each
+
+const DATASET_LABELS = {
+  officialCurriculum: 'Curriculum',
+  scheduleOfClasses: 'Schedule of Classes',
+  grades: 'View Grades',
+  advisoryGrades: 'Advisory Grades',
+  enrolledClasses: 'Currently Enrolled',
+  classSchedule: 'My Class Schedule',
+  tuitionReceipt: 'Tuition Receipt',
+  studentInfo: 'Student Information',
+  programOfStudy: 'Program of Study',
+  holdOrders: 'Hold Orders',
+  facultyAttendance: 'Faculty Attendance'
+};
 
 const DEFAULT_METRICS = {
   totalRequests: 0,
@@ -34,6 +52,7 @@ function createInitialState(overrides = {}) {
     errors: [],
     debugMode: false,
     harEntries: [],
+    htmlSnapshotOrder: [],
     htmlSnapshots: {},
     metrics: { ...DEFAULT_METRICS },
     logsTrimmed: false,
