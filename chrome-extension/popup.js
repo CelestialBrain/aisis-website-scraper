@@ -466,21 +466,19 @@ document.addEventListener('DOMContentLoaded', async function() {
 
     const DATASET_COLUMN_CONFIG = {
         scheduleOfClasses: [
-            'department',
-            'subjectCode',
-            'section',
-            'courseTitle',
-            'units',
-            'time',
-            'room',
-            'instructor',
-            'maxNo',
-            'lang',
-            'level',
-            'freeSlots',
-            'remarks',
-            's',
-            'p'
+            { key: 'department' },
+            { key: 'subjectCode' },
+            { key: 'section' },
+            { key: 'courseTitle' },
+            { key: 'units' },
+            { key: 'time' },
+            { key: 'room' },
+            { key: 'instructor' },
+            { key: 'maxNo', label: 'Max' },
+            { key: 'lang' },
+            { key: 'level' },
+            { key: 'freeSlots' },
+            { key: 'remarks' }
         ],
         officialCurriculum: [
             'degreeProgram',
@@ -557,10 +555,10 @@ document.addEventListener('DOMContentLoaded', async function() {
             return null;
         }
 
-        const headerLine = columns.map(col => escapeForCSV(formatColumnLabel(col))).join(',');
+        const headerLine = columns.map(column => escapeForCSV(column.label)).join(',');
         const dataLines = items.map(item => {
             return columns
-                .map(column => escapeForCSV(item?.[column]))
+                .map(column => escapeForCSV(item?.[column.key]))
                 .join(',');
         });
 
@@ -620,18 +618,43 @@ document.addEventListener('DOMContentLoaded', async function() {
     }
 
     function getColumnsForItems(items, configuredColumns) {
-        if (configuredColumns && configuredColumns.length > 0) {
-            return configuredColumns;
+        if (Array.isArray(configuredColumns) && configuredColumns.length > 0) {
+            return configuredColumns
+                .map(column => {
+                    if (typeof column === 'string') {
+                        return {
+                            key: column,
+                            label: formatColumnLabel(column)
+                        };
+                    }
+
+                    if (column && typeof column === 'object' && column.key) {
+                        return {
+                            key: column.key,
+                            label: column.label || formatColumnLabel(column.key)
+                        };
+                    }
+
+                    return null;
+                })
+                .filter(Boolean);
         }
 
-        const columnSet = new Set();
+        const columnMap = new Map();
         items.forEach(item => {
             if (item && typeof item === 'object') {
-                Object.keys(item).forEach(key => columnSet.add(key));
+                Object.keys(item).forEach(key => {
+                    if (!columnMap.has(key)) {
+                        columnMap.set(key, {
+                            key,
+                            label: formatColumnLabel(key)
+                        });
+                    }
+                });
             }
         });
 
-        return Array.from(columnSet);
+        return Array.from(columnMap.values());
     }
 
     function deriveHeadersFromRows(rows) {
