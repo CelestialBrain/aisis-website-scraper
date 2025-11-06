@@ -1641,7 +1641,7 @@ async function startScraping(options) {
   const rawPages = (options && options.pages) || {};
   const pages = normalizePageSelection(rawPages);
   const selectedPageKeys = Object.keys(pages).filter(key => pages[key]);
-  const totalSteps = Math.max(1, selectedPageKeys.length + 1);
+  const totalSteps = Math.max(1, selectedPageKeys.length);
 
   // Reset state
   scrapingState = createInitialState({
@@ -1696,7 +1696,6 @@ async function startScraping(options) {
     }
     
     scrapingState.substepProgress = 0;
-    scrapingState.completedSteps++;
     updateProgress();
 
     scrapingState.pauseRequested = false;
